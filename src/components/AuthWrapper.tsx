@@ -36,17 +36,18 @@ export default function AuthWrapper({
         clearTimeout(timeoutId);
 
         if (!response.ok) {
-          // Not authenticated, redirect to login
-          router.push(`/login?redirect=${encodeURIComponent(pathname || "/")}`);
+          // Token is invalid/expired — clear cookie and hard redirect to login
+          document.cookie = "auth-token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+          window.location.href = `/login?redirect=${encodeURIComponent(pathname || "/")}`;
           return;
         }
 
         setIsChecking(false);
       } catch (error) {
         console.error("Auth check error:", error);
-        // Always stop loading spinner - either redirect to login or show page
-        setIsChecking(false);
-        router.push(`/login?redirect=${encodeURIComponent(pathname || "/")}`);
+        // Clear cookie and hard redirect on any failure
+        document.cookie = "auth-token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+        window.location.href = `/login?redirect=${encodeURIComponent(pathname || "/")}`;
       }
     };
 
