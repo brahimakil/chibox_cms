@@ -31,7 +31,7 @@ const getDatabaseUrl = () => {
   // URL encode password in case it contains special characters
   const encodedPassword = encodeURIComponent(password);
 
-  return `mysql://${user}:${encodedPassword}@${host}:${port}/${database}`;
+  return `mysql://${user}:${encodedPassword}@${host}:${port}/${database}?connect_timeout=10&pool_timeout=10`;
 };
 
 // Get the database URL and set it BEFORE importing Prisma

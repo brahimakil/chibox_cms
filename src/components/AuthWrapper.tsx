@@ -23,10 +23,17 @@ export default function AuthWrapper({
     // Client-side check as backup (middleware should handle this, but just in case)
     const checkAuth = async () => {
       try {
+        // Add timeout to prevent infinite loading if the API is slow/unreachable
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
+
         const response = await fetch("/api/auth/user", {
           method: "GET",
           credentials: "include",
+          signal: controller.signal,
         });
+
+        clearTimeout(timeoutId);
 
         if (!response.ok) {
           // Not authenticated, redirect to login
@@ -37,6 +44,8 @@ export default function AuthWrapper({
         setIsChecking(false);
       } catch (error) {
         console.error("Auth check error:", error);
+        // Always stop loading spinner - either redirect to login or show page
+        setIsChecking(false);
         router.push(`/login?redirect=${encodeURIComponent(pathname || "/")}`);
       }
     };
