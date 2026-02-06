@@ -42,6 +42,7 @@ const categoryFormSchema = z.object({
   display: z.enum(['0', '1']),
   type: z.string().min(1, 'Type is required'),
   cartBtn: z.enum(['0', '1']),
+  orderNumber: z.string().optional(),
 })
 
 type CategoryFormValues = z.infer<typeof categoryFormSchema>
@@ -55,6 +56,7 @@ interface CategoryData {
   showInNavbar: number
   display: number
   cartBtn?: number
+  orderNumber?: number | null
   mainImage?: string | null
   [key: string]: unknown
 }
@@ -88,6 +90,7 @@ export function CategoryForm({ open, onOpenChange, categoryId, onSuccess }: Cate
       display: '1',
       type: '',
       cartBtn: '1',
+      orderNumber: '',
     },
   })
 
@@ -120,6 +123,7 @@ export function CategoryForm({ open, onOpenChange, categoryId, onSuccess }: Cate
             display: (result.category.display?.toString() as '0' | '1') || '1',
             type: result.category.type?.toString() || '',
             cartBtn: (result.category.cartBtn?.toString() as '0' | '1') || '1',
+            orderNumber: result.category.orderNumber?.toString() || '',
           })
         } else {
           toast({
@@ -158,6 +162,7 @@ export function CategoryForm({ open, onOpenChange, categoryId, onSuccess }: Cate
         display: '1',
         type: '',
         cartBtn: '1',
+        orderNumber: '',
       })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -299,6 +304,7 @@ export function CategoryForm({ open, onOpenChange, categoryId, onSuccess }: Cate
           show_in_navbar: parseInt(data.showInNavbar),
           display: parseInt(data.display),
           cart_btn: parseInt(data.cartBtn),
+          order_number: data.orderNumber ? parseInt(data.orderNumber) : null,
           r_store_id: 1,
           main_image: imageUrl,
           // Skip additional_images for now - will upload separately
@@ -459,6 +465,29 @@ export function CategoryForm({ open, onOpenChange, categoryId, onSuccess }: Cate
                           aria-invalid={!!form.formState.errors.categoryName}
                         />
                       </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                {/* Order Number */}
+                <FormField
+                  control={form.control}
+                  name="orderNumber"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-base font-medium">Order Number</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          placeholder="e.g. 1, 2, 3... (lower = appears first)"
+                          className="h-11 text-base"
+                          {...field}
+                        />
+                      </FormControl>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Controls the display order in the app. Lower numbers appear first.
+                      </p>
                       <FormMessage />
                     </FormItem>
                   )}
