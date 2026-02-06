@@ -36,8 +36,8 @@ export default function AuthWrapper({
         clearTimeout(timeoutId);
 
         if (!response.ok) {
-          // Token is invalid/expired — clear cookie and hard redirect to login
-          document.cookie = "auth-token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+          // 401 response also clears the httpOnly cookie server-side
+          // Hard redirect so middleware picks up the cleared cookie
           window.location.href = `/login?redirect=${encodeURIComponent(pathname || "/")}`;
           return;
         }
@@ -45,8 +45,6 @@ export default function AuthWrapper({
         setIsChecking(false);
       } catch (error) {
         console.error("Auth check error:", error);
-        // Clear cookie and hard redirect on any failure
-        document.cookie = "auth-token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
         window.location.href = `/login?redirect=${encodeURIComponent(pathname || "/")}`;
       }
     };

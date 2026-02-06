@@ -8,22 +8,44 @@ export async function GET(request: NextRequest) {
     const token = request.cookies.get(COOKIE_NAME)?.value;
 
     if (!token) {
-      // return NextResponse.redirect(new URL('/login', request.url));
-      return NextResponse.json(
+      // No token — clear cookie (in case it's stale/corrupt) and return 401
+      const response = NextResponse.json(
         { success: false, error: 'Not authenticated' },
         { status: 401 }
       );
+      response.cookies.set({
+        name: COOKIE_NAME,
+        value: '',
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 0,
+        path: '/',
+        expires: new Date(0),
+      });
+      return response;
     }
 
     // Find user by token
     const user = await AgUsersModel.findByToken(token);
 
     if (!user || !user.token || user.token.trim() === '') {
-      // return NextResponse.redirect(new URL('/login', request.url));
-      return NextResponse.json(
+      // Invalid token — clear cookie so middleware stops letting them through
+      const response = NextResponse.json(
         { success: false, error: 'Invalid token' },
         { status: 401 }
       );
+      response.cookies.set({
+        name: COOKIE_NAME,
+        value: '',
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 0,
+        path: '/',
+        expires: new Date(0),
+      });
+      return response;
     }
 
     // Return user data (excluding password)
