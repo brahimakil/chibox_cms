@@ -1,6 +1,7 @@
 "use client";
 
 import { resolveDisplayColor } from "@/lib/color-utils";
+import { resolveImageUrl } from "@/lib/image-url";
 
 interface Variant {
   id: string;
@@ -88,7 +89,7 @@ export function VariantsTable({
                 <td className="px-3 py-2">
                   {v.variant_image ? (
                     <img
-                      src={v.variant_image}
+                      src={resolveImageUrl(v.variant_image) || ""}
                       alt=""
                       className="h-10 w-10 rounded object-cover"
                     />

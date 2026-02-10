@@ -5,6 +5,7 @@ import {
   resolveDisplayColor,
   isLightColor,
 } from "@/lib/color-utils";
+import { resolveImageUrl } from "@/lib/image-url";
 
 interface OptionValue {
   id: number;
@@ -70,7 +71,7 @@ export function OptionsDisplay({ options }: OptionsDisplayProps) {
                   >
                     {hasImage && (
                       <img
-                        src={val.image_url!}
+                        src={resolveImageUrl(val.image_url) || ""}
                         alt={val.name || ""}
                         className="h-8 w-8 rounded object-cover border"
                       />

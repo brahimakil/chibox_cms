@@ -31,6 +31,7 @@ import { DimensionsForm } from "@/components/products/dimensions-form";
 import { ShippingEstimation } from "@/components/products/shipping-estimation";
 import { SpecificationsTable } from "@/components/products/specifications-table";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { resolveImageUrl } from "@/lib/image-url";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -247,7 +248,7 @@ export default function ProductDetailPage({
                     className="aspect-square overflow-hidden rounded-lg border hover:ring-2 hover:ring-ring"
                   >
                     <img
-                      src={url}
+                      src={resolveImageUrl(url) || url}
                       alt=""
                       className="h-full w-full object-cover"
                       onError={(e) => {

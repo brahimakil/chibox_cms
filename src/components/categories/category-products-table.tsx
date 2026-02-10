@@ -7,6 +7,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { StockBadge } from "@/components/products/product-status-badge";
 import { ImageLightbox } from "@/components/products/image-lightbox";
 import { SearchInput } from "@/components/shared/search-input";
+import { resolveImageUrl } from "@/lib/image-url";
 
 interface Product {
   id: number;
@@ -250,7 +251,7 @@ export function CategoryProductsTable({
                           className="block overflow-hidden rounded border hover:ring-2 hover:ring-ring cursor-pointer"
                         >
                           <img
-                            src={p.main_image}
+                            src={resolveImageUrl(p.main_image) || ""}
                             alt=""
                             className="h-9 w-9 object-cover"
                             loading="lazy"

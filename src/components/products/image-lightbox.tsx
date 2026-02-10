@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { X, ChevronLeft, ChevronRight } from "lucide-react";
+import { resolveImageUrl } from "@/lib/image-url";
 
 interface ImageLightboxProps {
   images: string[];
@@ -71,7 +72,7 @@ export function ImageLightbox({
 
       {/* Image */}
       <img
-        src={images[currentIndex]}
+        src={resolveImageUrl(images[currentIndex]) || images[currentIndex]}
         alt={`Image ${currentIndex + 1}`}
         className="max-h-[85vh] max-w-[90vw] rounded-lg object-contain"
         onClick={(e) => e.stopPropagation()}
