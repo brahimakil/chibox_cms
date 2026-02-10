@@ -96,7 +96,7 @@ export async function PUT(
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              token: user.mobile_token,
+              fcm_token: user.mobile_token,
               title: "🚚 Shipping Cost Confirmed",
               body: `Your shipping cost has been confirmed! Pay $${Number(shippingCost).toFixed(2)} to proceed.`,
               data: {

@@ -74,7 +74,7 @@ export async function PUT(
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            token: user.mobile_token,
+            fcm_token: user.mobile_token,
             title: `Order #${orderId} ${statusLabel}`,
             body: `Your order has been ${statusLabel.toLowerCase()}.`,
             data: {
