@@ -1,8 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from "next/server";
-import { writeFile, mkdir } from "node:fs/promises";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
 import sharp from "sharp";
 import { prisma } from "@/lib/prisma";
 
@@ -16,11 +13,10 @@ const BACKEND_URL =
  * saved on the **remote production server** and immediately accessible at
  * https://cms2.devback.website/uploads/...
  *
- * A local copy is also kept under public/uploads/ for CMS preview.
+ * No local copy is saved — Vercel's serverless filesystem is read-only.
  *
  * FormData:
  *  - file       : File
- *  - folder     : string  (used only for local preview organisation)
  *  - record_id  : string  (optional — ID of the record to link in ag_attachment)
  *  - table_name : string  (optional — table name for ag_attachment)
  */
@@ -28,7 +24,6 @@ export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
     const file = formData.get("file") as File;
-    const folder = (formData.get("folder") as string) || "general";
     const recordId = formData.get("record_id") as string | null;
     const tableName = formData.get("table_name") as string | null;
 
@@ -141,22 +136,7 @@ export async function POST(request: NextRequest) {
     const fileName = backendJson.filename || relativePath.split("/").pop()!;
     const ext = fileName.split(".").pop() || "jpg";
 
-    // ── 3. Save a local copy for CMS preview ───────────────────────────
-    // Mirror the same relative path so Next.js serves it from public/
-    try {
-      // relativePath is like "/uploads/abc.png" — save under public/uploads/
-      const localDir = join(process.cwd(), "public", "uploads");
-      if (!existsSync(localDir)) {
-        await mkdir(localDir, { recursive: true });
-      }
-      const localPath = join(localDir, fileName);
-      await writeFile(localPath, buffer);
-    } catch (error_) {
-      // Non-fatal — the remote upload already succeeded
-      console.warn("Local preview copy failed (non-fatal):", error_);
-    }
-
-    // ── 4. Optionally create ag_attachment record ──────────────────────
+    // ── 3. Optionally create ag_attachment record ──────────────────────
     if (recordId && tableName) {
       try {
         await prisma.$executeRawUnsafe(

@@ -15,6 +15,10 @@ const nextConfig: NextConfig = {
         protocol: "http",
         hostname: "**.alicdn.com",
       },
+      {
+        protocol: "https",
+        hostname: "cms2.devback.website",
+      },
     ],
   },
 };

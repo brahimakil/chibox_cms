@@ -132,24 +132,21 @@ const EMPTY_FORM: SplashAdFormData = {
 };
 
 /**
- * Try local path first (for images uploaded to public/uploads/).
- * If it fails, fall back to the backend URL.
+ * No-op error handler — displaySrc already provides the correct URL.
+ * Kept because JSX elements reference it as onError.
  */
 function handleImgError(
-  e: React.SyntheticEvent<HTMLImageElement>,
-  originalPath: string | null | undefined
+  _e: React.SyntheticEvent<HTMLImageElement>,
+  _originalPath: string | null | undefined
 ) {
-  const img = e.currentTarget;
-  const fallback = resolveImageUrl(originalPath);
-  if (fallback && !img.src.endsWith(fallback) && img.src !== fallback) {
-    img.src = fallback;
-  }
+  // Images are now always served from the backend URL via displaySrc.
 }
 
+/**
+ * For a given image path, resolve it to a full backend URL.
+ */
 function displaySrc(path: string | null | undefined): string {
-  if (!path) return "";
-  if (path.startsWith("http://") || path.startsWith("https://")) return path;
-  return path;
+  return resolveImageUrl(path) || "";
 }
 
 /* ════════════════════════════════════════════════════════════
