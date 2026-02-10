@@ -28,7 +28,7 @@ export default function OrdersPage() {
             <ShoppingCart className="h-8 w-8 text-muted-foreground" />
           </div>
           <div className="text-center">
-            <h3 className="text-lg font-semibold">No orders yet</h3>
+            <h3 className="text-lg font-semibold">WILL DO TOMORROW</h3>
             <p className="mt-1 max-w-sm text-sm text-muted-foreground">
               Orders will appear here once customers start placing them. Connect your backend to see real data.
             </p>
