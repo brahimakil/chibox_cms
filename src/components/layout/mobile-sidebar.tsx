@@ -13,7 +13,6 @@ import {
   Users,
   ShieldCheck,
   Bell,
-  Send,
   Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -49,7 +48,6 @@ const navigation = [
     title: "Communication",
     items: [
       { title: "Notifications", href: "/dashboard/notifications", icon: Bell },
-      { title: "Push Notifications", href: "/dashboard/push-notifications", icon: Send },
     ],
   },
   {
