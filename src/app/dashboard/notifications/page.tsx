@@ -259,7 +259,9 @@ export default function NotificationsPage() {
   const [entitySearching, setEntitySearching] = useState(false);
   const [selectedEntity, setSelectedEntity] = useState<{ type: string; id: number; label: string; image?: string | null } | null>(null);
 
-  /* ─ Image upload ─ */
+  /* ─ Image (deferred upload) ─ */
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageUploading, setImageUploading] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
 
@@ -356,26 +358,28 @@ export default function NotificationsPage() {
     return () => clearTimeout(t);
   }, [entitySearchInput, formType]);
 
-  /* ─── Image upload handler ─── */
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  /* ─── Image select handler (preview only, no upload yet) ─── */
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setImageUploading(true);
-    try {
-      const fd = new FormData();
-      fd.append("file", file);
-      fd.append("folder", "nots");
-      const res = await fetch("/api/upload", { method: "POST", body: fd });
-      const data = await res.json();
-      if (data.success && data.remote_url) {
-        setFormImageUrl(data.remote_url);
-      } else if (data.success && data.file_path) {
-        setFormImageUrl(data.file_path);
-      }
-    } catch { /* ignore */ } finally {
-      setImageUploading(false);
-      if (imageInputRef.current) imageInputRef.current.value = "";
-    }
+    // Revoke previous preview URL
+    if (imagePreview) URL.revokeObjectURL(imagePreview);
+    setImageFile(file);
+    setImagePreview(URL.createObjectURL(file));
+    setFormImageUrl(""); // clear any previously-uploaded URL
+    if (imageInputRef.current) imageInputRef.current.value = "";
+  };
+
+  /* ─── Upload image to server (called at send time) ─── */
+  const uploadImage = async (file: File): Promise<string | null> => {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("folder", "nots");
+    const res = await fetch("/api/upload", { method: "POST", body: fd });
+    const data = await res.json();
+    if (data.success && data.remote_url) return data.remote_url;
+    if (data.success && data.file_path) return data.file_path;
+    return null;
   };
 
   /* ─── Reset form ─── */
@@ -384,6 +388,8 @@ export default function NotificationsPage() {
     setFormRowId(""); setFormActionUrl(""); setFormImageUrl(""); setFormUserId(null);
     setSelectedUser(null); setUserSearchInput(""); setUserSearchResults([]); setFormSendPush(true);
     setEntitySearchInput(""); setEntitySearchResults([]); setSelectedEntity(null);
+    if (imagePreview) URL.revokeObjectURL(imagePreview);
+    setImageFile(null); setImagePreview(null);
   };
 
   /* ─── Send notification ─── */
@@ -392,6 +398,20 @@ export default function NotificationsPage() {
     if (formTarget === "user" && !formUserId) return;
     setSending(true);
     try {
+      /* Step 1: upload image if user selected one */
+      let finalImageUrl = formImageUrl;
+      if (imageFile) {
+        setImageUploading(true);
+        const uploaded = await uploadImage(imageFile);
+        setImageUploading(false);
+        if (!uploaded) {
+          setSending(false);
+          return; // upload failed — don't send notification
+        }
+        finalImageUrl = uploaded;
+      }
+
+      /* Step 2: build payload & send */
       const payload: Record<string, unknown> = {
         subject: formSubject.trim(),
         body: formBody.trim(),
@@ -401,7 +421,7 @@ export default function NotificationsPage() {
       if (formTarget === "user" && formUserId) payload.r_user_id = formUserId;
       if (formRowId) payload.row_id = Number(formRowId);
       if (formActionUrl.trim()) payload.action_url = formActionUrl.trim();
-      if (formImageUrl.trim()) payload.image_url = formImageUrl.trim();
+      if (finalImageUrl.trim()) payload.image_url = finalImageUrl.trim();
 
       const res = await fetch("/api/notifications", {
         method: "POST",
@@ -1180,19 +1200,30 @@ export default function NotificationsPage() {
               </div>
             )}
 
-            {/* Image Upload */}
+            {/* Image (instant preview, upload on send) */}
             <div className="grid gap-2">
               <Label className="flex items-center gap-1.5">
                 <ImageIcon className="h-3.5 w-3.5" /> Notification Image <span className="text-xs text-muted-foreground">(optional)</span>
               </Label>
-              {formImageUrl ? (
+              {(imagePreview || formImageUrl) ? (
                 <div className="flex items-center gap-3 rounded-lg border bg-muted/30 p-3">
-                  <img src={resolveImageUrl(formImageUrl)} alt="" className="h-16 w-16 rounded-md border object-cover" />
+                  <img
+                    src={imagePreview || resolveImageUrl(formImageUrl) || undefined}
+                    alt=""
+                    className="h-16 w-16 rounded-md border object-cover"
+                  />
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs text-muted-foreground truncate">{formImageUrl.split("/").pop()}</p>
-                    <p className="text-[10px] text-muted-foreground">Uploaded &amp; compressed</p>
+                    <p className="text-xs text-muted-foreground truncate">{imageFile?.name || formImageUrl.split("/").pop()}</p>
+                    <p className="text-[10px] text-muted-foreground">
+                      {imageFile
+                        ? `${(imageFile.size / 1024).toFixed(0)} KB · will be compressed & uploaded on send`
+                        : "Uploaded"}
+                    </p>
                   </div>
-                  <Button variant="ghost" size="sm" onClick={() => setFormImageUrl("")}>
+                  <Button variant="ghost" size="sm" onClick={() => {
+                    if (imagePreview) URL.revokeObjectURL(imagePreview);
+                    setImageFile(null); setImagePreview(null); setFormImageUrl("");
+                  }}>
                     <X className="h-4 w-4" />
                   </Button>
                 </div>
@@ -1201,18 +1232,11 @@ export default function NotificationsPage() {
                   className="flex cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-muted-foreground/25 p-6 transition-colors hover:border-muted-foreground/40"
                   onClick={() => imageInputRef.current?.click()}
                 >
-                  {imageUploading ? (
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <Loader2 className="h-5 w-5 animate-spin" />
-                      <span className="text-sm">Uploading &amp; compressing...</span>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center gap-1 text-muted-foreground">
-                      <Upload className="h-6 w-6" />
-                      <span className="text-xs font-medium">Click to upload image</span>
-                      <span className="text-[10px]">JPG, PNG, WebP — auto-compressed</span>
-                    </div>
-                  )}
+                  <div className="flex flex-col items-center gap-1 text-muted-foreground">
+                    <Upload className="h-6 w-6" />
+                    <span className="text-xs font-medium">Click to select image</span>
+                    <span className="text-[10px]">JPG, PNG, WebP — compressed on send</span>
+                  </div>
                 </div>
               )}
               <input
@@ -1220,7 +1244,7 @@ export default function NotificationsPage() {
                 type="file"
                 accept="image/jpeg,image/png,image/webp,image/gif"
                 className="hidden"
-                onChange={handleImageUpload}
+                onChange={handleImageSelect}
               />
             </div>
 
@@ -1268,7 +1292,7 @@ export default function NotificationsPage() {
               className="gap-2"
             >
               {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-              {formTarget === "all" ? "Broadcast to All" : "Send to User"}
+              {sending && imageUploading ? "Uploading image..." : sending ? "Sending..." : formTarget === "all" ? "Broadcast to All" : "Send to User"}
             </Button>
           </div>
         </DialogContent>
