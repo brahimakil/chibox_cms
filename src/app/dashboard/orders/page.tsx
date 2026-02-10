@@ -7,7 +7,7 @@ export default function OrdersPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight md:text-3xl">Orders</h1>
           <p className="mt-1 text-muted-foreground">
-            Manage and track all customer orders
+            WILL DO ORDERS TOMORROW !
           </p>
         </div>
         <div className="flex items-center gap-2">
