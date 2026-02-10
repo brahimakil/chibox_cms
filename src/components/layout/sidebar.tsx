@@ -14,7 +14,6 @@ import {
   Users,
   ShieldCheck,
   Bell,
-  Settings,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -101,16 +100,6 @@ const navigation = [
         title: "Notifications",
         href: "/dashboard/notifications",
         icon: Bell,
-      },
-    ],
-  },
-  {
-    title: "System",
-    items: [
-      {
-        title: "Settings",
-        href: "/dashboard/settings",
-        icon: Settings,
       },
     ],
   },

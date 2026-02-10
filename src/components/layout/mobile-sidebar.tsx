@@ -13,7 +13,6 @@ import {
   Users,
   ShieldCheck,
   Bell,
-  Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -48,12 +47,6 @@ const navigation = [
     title: "Communication",
     items: [
       { title: "Notifications", href: "/dashboard/notifications", icon: Bell },
-    ],
-  },
-  {
-    title: "System",
-    items: [
-      { title: "Settings", href: "/dashboard/settings", icon: Settings },
     ],
   },
 ];
