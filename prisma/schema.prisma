@@ -1427,6 +1427,12 @@ model orders {
   shipping_method       orders_shipping_method? @default(air)
   client_notes          String?                 @db.Text
   notes                 String?                 @db.LongText
+  refund_type           orders_refund_type?     @default(none)
+  refund_amount         Decimal?                @db.Decimal(12, 2)
+  refund_notes          String?                 @db.Text
+  refunded_at           DateTime?               @db.DateTime(0)
+  invoice_generated_at  DateTime?               @db.DateTime(0)
+  invoice_path          String?                 @db.VarChar(500)
   created_at            DateTime                @default(now()) @db.Timestamp(0)
   updated_at            DateTime?               @default(now()) @db.Timestamp(0)
   locked_by             Int?
@@ -2639,6 +2645,13 @@ enum sync_log_triggered_by {
 enum orders_shipping_method {
   air
   sea
+}
+
+enum orders_refund_type {
+  none
+  full
+  products_only
+  shipping_only
 }
 
 enum order_products_shipping_method {

@@ -39,6 +39,8 @@ export async function GET() {
       ordersByPaymentType,
       // Daily orders (last 30 days)
       dailyOrders,
+      // Pending shipping review
+      pendingShippingReview,
     ] = await Promise.all([
       prisma.product.count(),
       prisma.users.count(),
@@ -123,7 +125,7 @@ export async function GET() {
         by: ["payment_type"],
         _count: { id: true },
         _sum: { total: true },
-      }),
+      }) as any,
       // Daily orders last 30 days
       prisma.$queryRaw`
         SELECT DATE(created_at) as date, COUNT(id) as count, SUM(total) as revenue
@@ -132,6 +134,10 @@ export async function GET() {
         GROUP BY DATE(created_at)
         ORDER BY date ASC
       ` as Promise<Array<{ date: string; count: number; revenue: number }>>,
+      // Pending shipping review (shipping_status = 0 and order not cancelled/refunded/failed)
+      prisma.orders.count({
+        where: { shipping_status: 0, status: { notIn: [5, 6, 7] } },
+      }),
     ]);
 
     // Calculate percentage changes
@@ -142,26 +148,26 @@ export async function GET() {
     const ordersChange = ordersLastMonth > 0 ? ((ordersThisMonth - ordersLastMonth) / ordersLastMonth) * 100 : 0;
     const customersChange = customersLastMonth > 0 ? ((customersThisMonth - customersLastMonth) / customersLastMonth) * 100 : 0;
 
-    // Map status codes to labels
+    // Map status codes to labels (aligned with order-constants)
     const statusLabels: Record<number, string> = {
-      0: "Pending",
-      1: "Processing",
-      2: "Shipped",
-      3: "Delivered",
-      4: "Cancelled",
-      5: "Returned",
+      9: "Pending",
+      1: "Confirmed",
+      2: "Processing",
+      3: "Shipped",
+      4: "Delivered",
+      5: "Cancelled",
       6: "Refunded",
-      7: "On Hold",
-      8: "Failed",
-      9: "New",
-      10: "Confirmed",
+      7: "Failed",
+      8: "On Hold",
     };
 
     const paymentLabels: Record<number, string> = {
-      0: "Cash on Delivery",
-      1: "Credit Card",
-      2: "Whish Money",
-      3: "Bank Transfer",
+      1: "Cash on Delivery",
+      2: "Credit/Debit Card",
+      3: "PayPal",
+      4: "Stripe",
+      5: "Online Payment",
+      6: "Whish Money",
     };
 
     // Format monthly revenue data (fill gaps)
@@ -190,6 +196,7 @@ export async function GET() {
         customersThisMonth,
         customersChange: Math.round(customersChange * 10) / 10,
         totalCoupons,
+        pendingShippingReview,
       },
       charts: {
         monthlyRevenue: monthlyRevenueFormatted,

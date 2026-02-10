@@ -12,6 +12,7 @@ import {
   Ticket,
   RefreshCw,
   Clock,
+  Truck,
 } from "lucide-react";
 import {
   BarChart,
@@ -385,7 +386,7 @@ export default function DashboardPage() {
           </div>
           <div className="space-y-0 divide-y">
             {recentOrders.map((order) => (
-              <div key={order.id} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
+              <a key={order.id} href={`/dashboard/orders/${order.id}`} className="flex items-center justify-between py-3 first:pt-0 last:pb-0 hover:bg-muted/30 -mx-2 px-2 rounded-md transition-colors">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium">#{order.id}</span>
@@ -402,7 +403,7 @@ export default function DashboardPage() {
                     {timeAgo(order.createdAt)}
                   </p>
                 </div>
-              </div>
+              </a>
             ))}
             {recentOrders.length === 0 && (
               <p className="py-8 text-center text-sm text-muted-foreground">No orders yet</p>
@@ -437,17 +438,33 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Coupons stat */}
-      <div className="rounded-xl border bg-card p-5 shadow-sm">
-        <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-pink-50 p-2.5 dark:bg-pink-950/50">
-            <Ticket className="h-5 w-5 text-pink-600 dark:text-pink-400" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-muted-foreground">Active Coupons</p>
-            <p className="text-xl font-bold">{stats.totalCoupons}</p>
+      {/* Bottom stats row */}
+      <div className="grid gap-4 sm:grid-cols-2">
+        {/* Coupons stat */}
+        <div className="rounded-xl border bg-card p-5 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="rounded-lg bg-pink-50 p-2.5 dark:bg-pink-950/50">
+              <Ticket className="h-5 w-5 text-pink-600 dark:text-pink-400" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">Active Coupons</p>
+              <p className="text-xl font-bold">{stats.totalCoupons}</p>
+            </div>
           </div>
         </div>
+
+        {/* Pending Shipping Review */}
+        <a href="/dashboard/orders?shipping_status=0" className="rounded-xl border bg-card p-5 shadow-sm hover:bg-accent/50 transition-colors block">
+          <div className="flex items-center gap-3">
+            <div className="rounded-lg bg-amber-50 p-2.5 dark:bg-amber-950/50">
+              <Truck className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">Pending Shipping Review</p>
+              <p className="text-xl font-bold">{stats.pendingShippingReview ?? 0}</p>
+            </div>
+          </div>
+        </a>
       </div>
     </div>
   );
