@@ -70,7 +70,7 @@ export async function PUT(
       });
 
       if (user?.mobile_token) {
-        await fetch(`${BACKEND_URL}/v3_0_0-notification/send-push`, {
+        const pushRes = await fetch(`${BACKEND_URL}/v3_0_0-notification/send-push`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -79,10 +79,17 @@ export async function PUT(
             body: `Your order has been ${statusLabel.toLowerCase()}.`,
             data: {
               type: "order",
+              notification_type: "order",
               order_id: String(orderId),
+              target_id: String(orderId),
+              click_action: "FLUTTER_NOTIFICATION_CLICK",
             },
           }),
         });
+        if (!pushRes.ok) {
+          const errText = await pushRes.text().catch(() => "");
+          console.error(`FCM push failed [${pushRes.status}]:`, errText);
+        }
       }
 
       // Create notification record

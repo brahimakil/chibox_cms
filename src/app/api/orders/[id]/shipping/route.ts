@@ -92,7 +92,7 @@ export async function PUT(
         const shippingCost = data.shipping_amount ?? order.shipping_amount;
 
         if (user?.mobile_token) {
-          await fetch(`${BACKEND_URL}/v3_0_0-notification/send-push`, {
+          const pushRes = await fetch(`${BACKEND_URL}/v3_0_0-notification/send-push`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -101,10 +101,17 @@ export async function PUT(
               body: `Your shipping cost has been confirmed! Pay $${Number(shippingCost).toFixed(2)} to proceed.`,
               data: {
                 type: "shipping",
+                notification_type: "order",
                 order_id: String(orderId),
+                target_id: String(orderId),
+                click_action: "FLUTTER_NOTIFICATION_CLICK",
               },
             }),
           });
+          if (!pushRes.ok) {
+            const errText = await pushRes.text().catch(() => "");
+            console.error(`FCM push failed [${pushRes.status}]:`, errText);
+          }
         }
 
         await prisma.notifications.create({
