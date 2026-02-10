@@ -25,6 +25,10 @@ import {
   Copy,
   Store,
   Pencil,
+  Receipt,
+  Plus,
+  Eye,
+  Ban,
 } from "lucide-react";
 import { resolveImageUrl } from "@/lib/image-url";
 import {
@@ -140,6 +144,12 @@ export default function OrderDetailPage({
   // Notes
   const [notes, setNotes] = useState("");
 
+  // Invoices
+  const [invoices, setInvoices] = useState<any[]>([]);
+  const [invoicesLoading, setInvoicesLoading] = useState(false);
+  const [invoiceGenerating, setInvoiceGenerating] = useState(false);
+  const [invoiceUpdating, setInvoiceUpdating] = useState<number | null>(null);
+
   const showToast = (message: string, type: "success" | "error") => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4000);
@@ -163,9 +173,26 @@ export default function OrderDetailPage({
     }
   }, [id]);
 
+  // ── Fetch invoices ────────────────────────────────────────────────
+  const fetchInvoices = useCallback(async () => {
+    setInvoicesLoading(true);
+    try {
+      const res = await fetch(`/api/orders/${id}/invoices`);
+      if (res.ok) {
+        const json = await res.json();
+        setInvoices(json.invoices || []);
+      }
+    } catch {
+      // Non-fatal
+    } finally {
+      setInvoicesLoading(false);
+    }
+  }, [id]);
+
   useEffect(() => {
     fetchOrder();
-  }, [fetchOrder]);
+    fetchInvoices();
+  }, [fetchOrder, fetchInvoices]);
 
   // ── Handle status change ──────────────────────────────────────────
   const handleStatusChange = async (newStatus: number) => {
@@ -339,6 +366,50 @@ export default function OrderDetailPage({
       showToast(err.message, "error");
     } finally {
       setNotesSaving(false);
+    }
+  };
+
+  // ── Generate invoice ──────────────────────────────────────────────
+  const handleGenerateInvoice = async (type: "product" | "shipping") => {
+    const label = type === "product" ? "Product" : "Shipping";
+    if (!confirm(`Generate a ${label} invoice for this order?`)) return;
+    setInvoiceGenerating(true);
+    try {
+      const res = await fetch(`/api/orders/${id}/invoices`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed");
+      showToast(`${label} invoice generated: ${json.invoice.invoice_number}`, "success");
+      await fetchInvoices();
+    } catch (err: any) {
+      showToast(err.message, "error");
+    } finally {
+      setInvoiceGenerating(false);
+    }
+  };
+
+  // ── Update invoice status ─────────────────────────────────────────
+  const handleInvoiceStatusChange = async (invoiceId: number, newStatus: string) => {
+    const label = newStatus === "void" ? "Void this invoice? This cannot be undone." : `Mark invoice as "${newStatus}"?`;
+    if (!confirm(label)) return;
+    setInvoiceUpdating(invoiceId);
+    try {
+      const res = await fetch(`/api/invoices/${invoiceId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed");
+      showToast(`Invoice status updated to ${newStatus}`, "success");
+      await fetchInvoices();
+    } catch (err: any) {
+      showToast(err.message, "error");
+    } finally {
+      setInvoiceUpdating(null);
     }
   };
 
@@ -878,6 +949,134 @@ export default function OrderDetailPage({
                     {coupon.percentage ? `${coupon.discount}%` : `$${coupon.discount}`}
                   </span>
                 </div>
+              </div>
+            )}
+          </SectionCard>
+
+          {/* ── Section: Invoices ───────────────────────────────────── */}
+          <SectionCard
+            title={`Invoices (${invoices.length})`}
+            icon={Receipt}
+            actions={
+              <div className="flex gap-1">
+                {!invoices.some((inv: any) => inv.type === "product") && (
+                  <button
+                    onClick={() => handleGenerateInvoice("product")}
+                    disabled={invoiceGenerating}
+                    className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium hover:bg-accent disabled:opacity-50"
+                    title="Generate Product Invoice"
+                  >
+                    {invoiceGenerating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+                    Product
+                  </button>
+                )}
+                {!invoices.some((inv: any) => inv.type === "shipping") && (
+                  <button
+                    onClick={() => handleGenerateInvoice("shipping")}
+                    disabled={invoiceGenerating}
+                    className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium hover:bg-accent disabled:opacity-50"
+                    title="Generate Shipping Invoice"
+                  >
+                    {invoiceGenerating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+                    Shipping
+                  </button>
+                )}
+              </div>
+            }
+          >
+            {invoicesLoading ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : invoices.length === 0 ? (
+              <div className="text-center py-4">
+                <Receipt className="h-8 w-8 text-muted-foreground/30 mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground italic">No invoices generated yet.</p>
+                <div className="flex gap-2 justify-center mt-3">
+                  <button
+                    onClick={() => handleGenerateInvoice("product")}
+                    disabled={invoiceGenerating}
+                    className="inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-accent disabled:opacity-50"
+                  >
+                    {invoiceGenerating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+                    Product Invoice
+                  </button>
+                  <button
+                    onClick={() => handleGenerateInvoice("shipping")}
+                    disabled={invoiceGenerating}
+                    className="inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-accent disabled:opacity-50"
+                  >
+                    {invoiceGenerating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+                    Shipping Invoice
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {invoices.map((inv: any) => (
+                  <div key={inv.id} className="rounded-lg border p-3 space-y-2">
+                    {/* Invoice header */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                          inv.type === "product"
+                            ? "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400"
+                            : "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400"
+                        }`}>
+                          {inv.type === "product" ? "📦 Product" : "🚚 Shipping"}
+                        </span>
+                        <StatusBadge
+                          label={inv.status}
+                          color={inv.status === "generated" ? "blue" : inv.status === "sent" ? "green" : "red"}
+                        />
+                      </div>
+                      <span className="text-sm font-mono font-semibold">${inv.total.toFixed(2)}</span>
+                    </div>
+
+                    {/* Invoice number & date */}
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <span className="font-mono">{inv.invoice_number}</span>
+                      <span>{new Date(inv.created_at).toLocaleDateString()}</span>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-1 pt-1 border-t">
+                      <a
+                        href={inv.view_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium text-primary hover:bg-accent"
+                      >
+                        <Eye className="h-3 w-3" /> View
+                      </a>
+                      {inv.status === "generated" && (
+                        <button
+                          onClick={() => handleInvoiceStatusChange(inv.id, "sent")}
+                          disabled={invoiceUpdating === inv.id}
+                          className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium text-green-600 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-950/50 disabled:opacity-50"
+                        >
+                          {invoiceUpdating === inv.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle className="h-3 w-3" />}
+                          Mark Sent
+                        </button>
+                      )}
+                      {inv.status !== "void" && (
+                        <button
+                          onClick={() => handleInvoiceStatusChange(inv.id, "void")}
+                          disabled={invoiceUpdating === inv.id}
+                          className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/50 disabled:opacity-50"
+                        >
+                          {invoiceUpdating === inv.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Ban className="h-3 w-3" />}
+                          Void
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Notes */}
+                    {inv.notes && (
+                      <p className="text-[10px] text-muted-foreground italic border-t pt-1">{inv.notes}</p>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
           </SectionCard>

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ShoppingCart,
   Download,
@@ -80,6 +81,7 @@ function StatCard({
 
 // ── Main component ────────────────────────────────────────────────────
 export default function OrdersPage() {
+  const router = useRouter();
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<any>({});
@@ -425,7 +427,7 @@ export default function OrdersPage() {
                 </thead>
                 <tbody>
                   {orders.map((o: any) => (
-                    <tr key={o.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+                    <tr key={o.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => router.push(`/dashboard/orders/${o.id}`)}>
                       <td className="px-4 py-3">
                         <Link href={`/dashboard/orders/${o.id}`} className="font-medium text-primary hover:underline">
                           #{o.id}

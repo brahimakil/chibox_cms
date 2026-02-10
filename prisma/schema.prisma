@@ -1236,6 +1236,44 @@ model invoice_details {
   updated_at         DateTime @default(now()) @db.Timestamp(0)
 }
 
+model invoices {
+  id                Int                    @id @default(autoincrement())
+  order_id          Int
+  user_id           Int
+  invoice_number    String                 @unique(map: "uk_invoice_number") @db.VarChar(50)
+  type              invoices_type          @default(product)
+  subtotal          Decimal                @default(0.00) @db.Decimal(12, 2)
+  shipping_amount   Decimal                @default(0.00) @db.Decimal(12, 2)
+  tax_amount        Decimal                @default(0.00) @db.Decimal(12, 2)
+  discount_amount   Decimal                @default(0.00) @db.Decimal(12, 2)
+  total             Decimal                @default(0.00) @db.Decimal(12, 2)
+  currency          String                 @default("USD") @db.VarChar(10)
+  items             Json?
+  billing_address   Json?
+  payment_method    String?                @db.VarChar(50)
+  payment_reference String?                @db.VarChar(255)
+  status            invoices_status        @default(generated)
+  notes             String?                @db.Text
+  created_at        DateTime               @default(now()) @db.DateTime(0)
+  updated_at        DateTime               @default(now()) @db.DateTime(0)
+
+  @@index([order_id], map: "idx_order_id")
+  @@index([user_id], map: "idx_user_id")
+  @@index([type], map: "idx_type")
+  @@index([created_at], map: "idx_created_at")
+}
+
+enum invoices_type {
+  product
+  shipping
+}
+
+enum invoices_status {
+  generated
+  sent
+  void
+}
+
 model item_discounts {
   id          Int      @id @default(autoincrement())
   type        Int
