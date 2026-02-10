@@ -19,6 +19,13 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* Prevent Referer header on cross-origin image requests.
+            Chinese CDNs (alicdn.com) use hotlink protection that blocks
+            requests with unknown Referer values. On Vercel the referer
+            would be chibox-cms.vercel.app which gets rejected. */}
+        <meta name="referrer" content="same-origin" />
+      </head>
       <body className={inter.className}>
         <ThemeProvider
           attribute="class"

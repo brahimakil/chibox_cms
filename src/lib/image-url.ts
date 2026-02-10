@@ -2,7 +2,7 @@
  * Resolves image URLs that may be stored as relative paths in the database.
  *
  * The DB stores images in two formats:
- *  1. Absolute URLs (https://...) — returned as-is
+ *  1. Absolute URLs (https://...) — returned as-is (http:// upgraded to https://)
  *  2. Relative paths (/uploads/categories/... or /uploads/compressedcategories/...) —
  *     need the backend base URL prepended
  *
@@ -12,8 +12,12 @@
 export function resolveImageUrl(path: string | null | undefined): string | null {
   if (!path || path.trim() === "") return null;
 
-  // Already an absolute URL → use as-is
+  // Already an absolute URL
   if (path.startsWith("http://") || path.startsWith("https://")) {
+    // Upgrade http → https to prevent mixed-content blocking on HTTPS pages
+    if (path.startsWith("http://")) {
+      return path.replace("http://", "https://");
+    }
     return path;
   }
 
