@@ -843,7 +843,7 @@ export default function OrderDetailPage({
                         Qty: {p.quantity}
                       </div>
                       {(p.shipping ?? 0) > 0 && (
-                        <div className="text-[10px] text-muted-foreground">
+                        <div className="text-xs font-semibold text-green-600 dark:text-green-400">
                           Ship: ${Number(p.shipping).toFixed(2)}
                         </div>
                       )}
