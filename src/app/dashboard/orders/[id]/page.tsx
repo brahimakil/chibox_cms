@@ -839,7 +839,7 @@ export default function OrderDetailPage({
                     {/* Price info + Edit button */}
                     <div className="text-right shrink-0 flex flex-col items-end gap-1">
                       <div className="text-sm font-medium">${Number(p.product_price).toFixed(2)}</div>
-                      <div className="text-xs text-muted-foreground">
+                      <div className="text-xs font-bold text-primary">
                         Qty: {p.quantity}
                       </div>
                       {(p.shipping ?? 0) > 0 && (
