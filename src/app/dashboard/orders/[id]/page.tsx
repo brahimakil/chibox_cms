@@ -51,6 +51,7 @@ function StatusBadge({ label, color, large }: { label: string; color: string; la
     red: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
     orange: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400",
     gray: "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400",
+    cyan: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-400",
   };
 
   return (
@@ -149,6 +150,62 @@ export default function OrderDetailPage({
   const [invoicesLoading, setInvoicesLoading] = useState(false);
   const [invoiceGenerating, setInvoiceGenerating] = useState(false);
   const [invoiceUpdating, setInvoiceUpdating] = useState<number | null>(null);
+
+  // Item-level editing states
+  const [editingItem, setEditingItem] = useState<number | null>(null);
+  const [itemSaving, setItemSaving] = useState<number | null>(null);
+  const [itemForms, setItemForms] = useState<Record<number, { status: number; tracking_number: string; shipping_method: string; shipping: string; quantity: string }>>({});
+
+  const startEditItem = (p: any) => {
+    setEditingItem(p.id);
+    // Use the pre-fetched air/sea cost based on item's current shipping method
+    const method = p.shipping_method || "air";
+    const calcCost = method === "air" ? p.shipping_air : p.shipping_sea;
+    const shippingValue = (p.shipping && Number(p.shipping) > 0) ? p.shipping : (calcCost ?? 0);
+    setItemForms((prev) => ({
+      ...prev,
+      [p.id]: {
+        status: p.status ?? 9,
+        tracking_number: p.tracking_number || "",
+        shipping_method: method,
+        shipping: String(shippingValue),
+        quantity: String(p.quantity || 1),
+      },
+    }));
+  };
+
+  const cancelEditItem = () => {
+    setEditingItem(null);
+  };
+
+  const saveItemUpdate = async (itemId: number) => {
+    const form = itemForms[itemId];
+    if (!form) return;
+    setItemSaving(itemId);
+    try {
+      const res = await fetch(`/api/orders/${id}/items`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          item_id: itemId,
+          status: form.status,
+          tracking_number: form.tracking_number,
+          shipping_method: form.shipping_method,
+          shipping: Number(form.shipping),
+          quantity: Number(form.quantity),
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed");
+      showToast("Item updated successfully", "success");
+      setEditingItem(null);
+      await fetchOrder();
+    } catch (err: any) {
+      showToast(err.message, "error");
+    } finally {
+      setItemSaving(null);
+    }
+  };
 
   const showToast = (message: string, type: "success" | "error") => {
     setToast({ message, type });
@@ -679,7 +736,9 @@ export default function OrderDetailPage({
                     label="Method"
                     value={
                       order.shipping_method
-                        ? `${order.shipping_method === "air" ? "✈️" : "🚢"} ${order.shipping_method.charAt(0).toUpperCase() + order.shipping_method.slice(1)}`
+                        ? order.shipping_method === "both"
+                          ? "✈️🚢 Both (Air & Sea)"
+                          : `${order.shipping_method === "air" ? "✈️" : "🚢"} ${order.shipping_method.charAt(0).toUpperCase() + order.shipping_method.slice(1)}`
                         : "—"
                     }
                   />
@@ -726,6 +785,24 @@ export default function OrderDetailPage({
                         <span>Qty: {p.quantity}</span>
                       </div>
 
+                      {/* Item status badge + tracking */}
+                      <div className="mt-2 flex items-center gap-2 flex-wrap">
+                        <StatusBadge
+                          label={p.status_label || ORDER_STATUS[p.status ?? 9]?.label || "Pending"}
+                          color={p.status_color || ORDER_STATUS[p.status ?? 9]?.color || "gray"}
+                        />
+                        {p.tracking_number && (
+                          <span className="inline-flex items-center gap-1 rounded bg-muted px-2 py-0.5 text-[10px] text-muted-foreground font-mono">
+                            🔗 {p.tracking_number}
+                          </span>
+                        )}
+                        {p.shipping_method && (
+                          <span className="inline-flex items-center rounded bg-muted px-2 py-0.5 text-[10px] text-muted-foreground uppercase">
+                            {p.shipping_method === "air" ? "✈️" : "🚢"} {p.shipping_method}
+                          </span>
+                        )}
+                      </div>
+
                       {/* Variations */}
                       {p.variations?.length > 0 && (
                         <div className="mt-2 flex gap-1 flex-wrap">
@@ -760,14 +837,149 @@ export default function OrderDetailPage({
                       )}
                     </div>
 
-                    {/* Price info */}
-                    <div className="text-right shrink-0">
+                    {/* Price info + Edit button */}
+                    <div className="text-right shrink-0 flex flex-col items-end gap-1">
                       <div className="text-sm font-medium">${Number(p.product_price).toFixed(2)}</div>
                       <div className="text-xs text-muted-foreground">
                         Qty: {p.quantity}
                       </div>
+                      {(p.shipping ?? 0) > 0 && (
+                        <div className="text-[10px] text-muted-foreground">
+                          Ship: ${Number(p.shipping).toFixed(2)}
+                        </div>
+                      )}
+                      {editingItem !== p.id && (
+                        <button
+                          onClick={() => startEditItem(p)}
+                          className="mt-1 inline-flex items-center gap-1 rounded border px-2 py-1 text-[10px] text-muted-foreground hover:bg-accent transition-colors"
+                        >
+                          <Pencil className="h-3 w-3" /> Edit
+                        </button>
+                      )}
                     </div>
                   </div>
+
+                  {/* ── Inline Edit Form ─────────────────────────── */}
+                  {editingItem === p.id && itemForms[p.id] && (
+                    <div className="mt-3 border-t pt-3 grid grid-cols-2 gap-3">
+                      {/* Status */}
+                      <div>
+                        <label className="text-xs font-medium text-muted-foreground">Status</label>
+                        <select
+                          className="mt-1 w-full rounded-md border bg-background px-2 py-1.5 text-sm"
+                          value={itemForms[p.id].status}
+                          onChange={(e) =>
+                            setItemForms((prev) => ({
+                              ...prev,
+                              [p.id]: { ...prev[p.id], status: Number(e.target.value) },
+                            }))
+                          }
+                        >
+                          {Object.entries(ORDER_STATUS).map(([val, s]) => (
+                            <option key={val} value={val}>
+                              {s.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Shipping Method */}
+                      <div>
+                        <label className="text-xs font-medium text-muted-foreground">Shipping</label>
+                        <div className="mt-1 grid grid-cols-2 gap-1.5">
+                          {(["air", "sea"] as const).map((m) => {
+                            const isSelected = itemForms[p.id].shipping_method === m;
+                            const icon = m === "air" ? "✈️" : "🚢";
+                            const label = m === "air" ? "Air" : "Sea";
+                            const cost = m === "air" ? p.shipping_air : p.shipping_sea;
+                            return (
+                              <button
+                                key={m}
+                                type="button"
+                                onClick={() => {
+                                  setItemForms((prev) => ({
+                                    ...prev,
+                                    [p.id]: {
+                                      ...prev[p.id],
+                                      shipping_method: m,
+                                      shipping: String(cost ?? prev[p.id].shipping),
+                                    },
+                                  }));
+                                }}
+                                className={`flex flex-col items-center rounded-md border-2 px-2 py-1.5 text-xs transition-colors ${
+                                  isSelected
+                                    ? "border-primary bg-primary/10 font-semibold"
+                                    : "border-muted hover:border-muted-foreground/30"
+                                }`}
+                              >
+                                <span>{icon} {label}</span>
+                                <span className="font-mono text-[10px] text-muted-foreground">
+                                  ${Number(cost ?? 0).toFixed(2)}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Tracking Number */}
+                      <div>
+                        <label className="text-xs font-medium text-muted-foreground">Tracking #</label>
+                        <input
+                          type="text"
+                          className="mt-1 w-full rounded-md border bg-background px-2 py-1.5 text-sm font-mono"
+                          placeholder="Enter tracking number..."
+                          value={itemForms[p.id].tracking_number}
+                          onChange={(e) =>
+                            setItemForms((prev) => ({
+                              ...prev,
+                              [p.id]: { ...prev[p.id], tracking_number: e.target.value },
+                            }))
+                          }
+                        />
+                      </div>
+
+                      {/* Shipping Cost */}
+                      <div>
+                        <label className="text-xs font-medium text-muted-foreground">Shipping ($)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          className="mt-1 w-full rounded-md border bg-background px-2 py-1.5 text-sm font-mono"
+                          value={itemForms[p.id].shipping}
+                          onChange={(e) =>
+                            setItemForms((prev) => ({
+                              ...prev,
+                              [p.id]: { ...prev[p.id], shipping: e.target.value },
+                            }))
+                          }
+                        />
+                      </div>
+
+                      {/* Actions */}
+                      <div className="col-span-2 flex justify-end gap-2">
+                        <button
+                          onClick={cancelEditItem}
+                          className="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs hover:bg-accent"
+                          disabled={itemSaving === p.id}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => saveItemUpdate(p.id)}
+                          disabled={itemSaving === p.id}
+                          className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                        >
+                          {itemSaving === p.id ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Save className="h-3 w-3" />
+                          )}
+                          Save
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
 

@@ -1426,6 +1426,8 @@ model order_products {
   height_m          Decimal?                        @db.Decimal(10, 4)
   shipping_method   order_products_shipping_method?
   tax_amount        Decimal?                        @default(0.00) @db.Decimal(10, 2)
+  status            Int                             @default(9)
+  tracking_number   String?                         @db.VarChar(255)
 
   @@index([source_product_id], map: "idx_source_product_id")
   @@index([variation_id], map: "idx_variation_id")
@@ -2683,6 +2685,7 @@ enum sync_log_triggered_by {
 enum orders_shipping_method {
   air
   sea
+  both
 }
 
 enum orders_refund_type {

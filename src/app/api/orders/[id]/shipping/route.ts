@@ -44,7 +44,7 @@ export async function PUT(
       updated_at: new Date(),
     };
 
-    if (body.shipping_method === "air" || body.shipping_method === "sea") {
+    if (body.shipping_method === "air" || body.shipping_method === "sea" || body.shipping_method === "both") {
       data.shipping_method = body.shipping_method;
     }
 

@@ -52,6 +52,15 @@ export async function PUT(
       data: { status: newStatus, updated_at: new Date() },
     });
 
+    // Cascade status to all non-cancelled order items
+    await prisma.order_products.updateMany({
+      where: {
+        r_order_id: orderId,
+        status: { not: 5 }, // Skip cancelled items
+      },
+      data: { status: newStatus },
+    });
+
     // Create tracking entry
     await prisma.order_tracking.create({
       data: {

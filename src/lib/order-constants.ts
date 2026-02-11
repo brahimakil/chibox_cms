@@ -4,7 +4,8 @@ export const ORDER_STATUS: Record<number, { label: string; color: string }> = {
   9: { label: "Pending", color: "yellow" },
   1: { label: "Confirmed", color: "blue" },
   2: { label: "Processing", color: "indigo" },
-  3: { label: "Shipped", color: "purple" },
+  10: { label: "Processed", color: "cyan" },
+  3: { label: "Shipping", color: "purple" },
   4: { label: "Delivered", color: "green" },
   5: { label: "Cancelled", color: "red" },
   6: { label: "Refunded", color: "orange" },
@@ -32,13 +33,14 @@ export const PAYMENT_TYPES: Record<number, string> = {
  * and accepts any status 1-9. We keep some guardrails but allow admin flexibility.
  */
 export const VALID_STATUS_TRANSITIONS: Record<number, number[]> = {
-  9: [1, 2, 5, 8],       // Pending → Confirmed, Processing, Cancelled, On Hold
-  1: [2, 3, 5, 8],       // Confirmed → Processing, Shipped, Cancelled, On Hold
-  2: [3, 5, 8],          // Processing → Shipped, Cancelled, On Hold
-  3: [4, 5],             // Shipped → Delivered, Cancelled
-  4: [6],                // Delivered → Refunded
-  5: [9],                // Cancelled → Pending (reinstate)
-  6: [],                 // Refunded → nothing
-  7: [9],                // Failed → Pending (retry)
-  8: [1, 2, 5, 9],      // On Hold → Confirmed, Processing, Cancelled, Pending
+  9: [1, 2, 5, 8],        // Pending → Confirmed, Processing, Cancelled, On Hold
+  1: [2, 10, 3, 5, 8],    // Confirmed → Processing, Processed, Shipping, Cancelled, On Hold
+  2: [10, 3, 5, 8],       // Processing → Processed, Shipping, Cancelled, On Hold
+  10: [3, 5, 8],           // Processed → Shipping, Cancelled, On Hold
+  3: [4, 5],               // Shipping → Delivered, Cancelled
+  4: [6],                  // Delivered → Refunded
+  5: [9],                  // Cancelled → Pending (reinstate)
+  6: [],                   // Refunded → nothing
+  7: [9],                  // Failed → Pending (retry)
+  8: [1, 2, 5, 9],        // On Hold → Confirmed, Processing, Cancelled, Pending
 };
