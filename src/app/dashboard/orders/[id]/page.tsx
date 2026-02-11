@@ -782,7 +782,6 @@ export default function OrderDetailPage({
                       <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
                         <span>SKU: {p.product_code}</span>
                         {p.variation_name && <span>Variant: {p.variation_name}</span>}
-                        <span>Qty: {p.quantity}</span>
                       </div>
 
                       {/* Item status badge + tracking */}
