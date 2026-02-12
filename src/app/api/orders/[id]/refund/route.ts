@@ -66,11 +66,11 @@ export async function POST(
       },
     });
 
-    // Tracking entry
+    // Tracking entry — use workflow status_order 91 for refunded
     await prisma.order_tracking.create({
       data: {
         r_order_id: orderId,
-        r_status_id: 6,
+        r_status_id: 91,
         track_date: new Date(),
       },
     });

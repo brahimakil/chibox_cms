@@ -163,23 +163,24 @@ export async function deriveOrderStatusFromItems(orderId: number) {
     });
 
     if (allRefunded) {
-      // Set order status to 6 (refunded)
+      // Set order status to 6 (refunded) — tracking uses workflow status_order 91
       await prisma.orders.update({
         where: { id: orderId },
         data: { status: 6, updated_at: new Date() },
       });
       await prisma.order_tracking.create({
-        data: { r_order_id: orderId, r_status_id: 6, track_date: new Date() },
+        data: { r_order_id: orderId, r_status_id: 91, track_date: new Date() },
       });
       return 6;
     } else {
       // All cancelled, or mix of cancelled+refunded → cancelled
+      // tracking uses workflow status_order 90
       await prisma.orders.update({
         where: { id: orderId },
         data: { status: allCancelled ? 5 : 5, updated_at: new Date() },
       });
       await prisma.order_tracking.create({
-        data: { r_order_id: orderId, r_status_id: 5, track_date: new Date() },
+        data: { r_order_id: orderId, r_status_id: 90, track_date: new Date() },
       });
       return 5;
     }
