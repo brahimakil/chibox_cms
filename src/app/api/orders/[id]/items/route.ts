@@ -1,17 +1,16 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { ORDER_STATUS } from "@/lib/order-constants";
 
 /**
  * PUT /api/orders/[id]/items — Update individual order item
  *
  * Body: {
- *   item_id: number,          // order_product ID (required)
- *   status?: number,          // new status for this item
+ *   item_id: number,                // order_product ID (required)
+ *   workflow_status_key?: string,    // workflow status key (e.g. "processing", "ordered")
  *   tracking_number?: string,
  *   shipping_method?: "air" | "sea",
- *   shipping?: number,        // per-item shipping cost
+ *   shipping?: number,              // per-item shipping cost
  *   quantity?: number,
  * }
  */
@@ -23,7 +22,7 @@ export async function PUT(
     const { id } = await params;
     const orderId = Number(id);
     const body = await req.json();
-    const { item_id, status, tracking_number, shipping_method, shipping, quantity } = body;
+    const { item_id, workflow_status_key, tracking_number, shipping_method, shipping, quantity } = body;
 
     if (!item_id) {
       return NextResponse.json({ error: "item_id is required" }, { status: 400 });
@@ -45,13 +44,16 @@ export async function PUT(
     const updateData: any = {};
     const updatedFields: string[] = [];
 
-    if (status !== undefined) {
-      const newStatus = Number(status);
-      if (!ORDER_STATUS[newStatus]) {
-        return NextResponse.json({ error: "Invalid status code" }, { status: 400 });
+    // ── Workflow status update ───────────────────────────────────
+    if (workflow_status_key !== undefined) {
+      const workflowStatus = await prisma.cms_order_item_statuses.findFirst({
+        where: { status_key: workflow_status_key },
+      });
+      if (!workflowStatus) {
+        return NextResponse.json({ error: `Invalid workflow status key: ${workflow_status_key}` }, { status: 400 });
       }
-      updateData.status = newStatus;
-      updatedFields.push("status");
+      updateData.workflow_status_id = workflowStatus.id;
+      updatedFields.push("workflow_status");
     }
 
     if (tracking_number !== undefined) {
@@ -101,29 +103,46 @@ export async function PUT(
       data: updateData,
     });
 
-    // ── Auto-cascade status ──────────────────────────────────────
+    // ── Auto-cascade: if all non-terminal items share same workflow status, update order ──
     let orderStatusUpdated = false;
-    if (updatedFields.includes("status")) {
-      const newStatus = updateData.status;
+    if (updatedFields.includes("workflow_status")) {
+      const terminalKeys = ["cancelled", "refunded"];
       const allItems = await prisma.order_products.findMany({
-        where: { r_order_id: orderId, status: { not: 5 } },
-        select: { status: true },
+        where: { r_order_id: orderId },
+        select: { workflow_status_id: true },
       });
-      const allSameStatus = allItems.length > 0 && allItems.every((i) => i.status === newStatus);
-      if (allSameStatus) {
-        const order = await prisma.orders.findUnique({
-          where: { id: orderId },
-          select: { status: true },
-        });
-        if (order && order.status !== newStatus) {
-          await prisma.orders.update({
-            where: { id: orderId },
-            data: { status: newStatus, updated_at: new Date() },
-          });
-          await prisma.order_tracking.create({
-            data: { r_order_id: orderId, r_status_id: newStatus, track_date: new Date() },
-          });
-          orderStatusUpdated = true;
+
+      // Fetch all workflow statuses for lookup
+      const allStatuses = await prisma.cms_order_item_statuses.findMany();
+      const statusMap = new Map(allStatuses.map((s) => [s.id, s]));
+
+      // Filter non-terminal items
+      const nonTerminalItems = allItems.filter((i) => {
+        const ws = statusMap.get(i.workflow_status_id ?? 0);
+        return ws && !terminalKeys.includes(ws.status_key);
+      });
+
+      // If all non-terminal items have the same workflow status, cascade to order
+      if (nonTerminalItems.length > 0) {
+        const allSame = nonTerminalItems.every(
+          (i) => i.workflow_status_id === nonTerminalItems[0].workflow_status_id
+        );
+        if (allSame) {
+          const ws = statusMap.get(nonTerminalItems[0].workflow_status_id ?? 0);
+          if (ws) {
+            await prisma.orders.update({
+              where: { id: orderId },
+              data: { updated_at: new Date() },
+            });
+            await prisma.order_tracking.create({
+              data: {
+                r_order_id: orderId,
+                r_status_id: ws.status_order,
+                track_date: new Date(),
+              },
+            });
+            orderStatusUpdated = true;
+          }
         }
       }
     }
@@ -149,10 +168,18 @@ export async function PUT(
     // ── Auto-update order shipping_method to 'both' if mixed ────
     if (updatedFields.includes("shipping_method")) {
       const allItems = await prisma.order_products.findMany({
-        where: { r_order_id: orderId, status: { not: 5 } },
-        select: { shipping_method: true },
+        where: { r_order_id: orderId },
+        select: { shipping_method: true, workflow_status_id: true },
       });
-      const methods = new Set(allItems.map((i) => i.shipping_method).filter(Boolean));
+
+      // Fetch statuses to filter out cancelled
+      const cancelledStatus = await prisma.cms_order_item_statuses.findFirst({
+        where: { status_key: "cancelled" },
+      });
+      const cancelledId = cancelledStatus?.id ?? -1;
+
+      const activeItems = allItems.filter((i) => i.workflow_status_id !== cancelledId);
+      const methods = new Set(activeItems.map((i) => i.shipping_method).filter(Boolean));
       let orderMethod: "air" | "sea" | "both" = "air";
       if (methods.has("air") && methods.has("sea")) {
         orderMethod = "both";
@@ -170,12 +197,21 @@ export async function PUT(
     // Fetch fresh order data for response
     const freshOrder = await prisma.orders.findUnique({ where: { id: orderId } });
 
+    // Get workflow status label for the updated item
+    let workflowLabel = "Unknown";
+    if (updatedItem.workflow_status_id) {
+      const ws = await prisma.cms_order_item_statuses.findUnique({
+        where: { id: updatedItem.workflow_status_id },
+      });
+      if (ws) workflowLabel = ws.status_label;
+    }
+
     return NextResponse.json({
       success: true,
       item: {
         id: updatedItem.id,
-        status: updatedItem.status,
-        status_label: ORDER_STATUS[updatedItem.status ?? 9]?.label || "Unknown",
+        workflow_status_id: updatedItem.workflow_status_id,
+        workflow_status_label: workflowLabel,
         tracking_number: updatedItem.tracking_number,
         shipping_method: updatedItem.shipping_method,
         shipping: updatedItem.shipping,

@@ -66,6 +66,7 @@ export async function PUT(
       email_address,
       phone_number_one,
       password,
+      role_key,
     } = body;
 
     // Check the user exists
@@ -127,6 +128,35 @@ export async function PUT(
       updateData.user_password = await hashPassword(password);
     }
 
+    // Handle role change
+    if (role_key) {
+      const roleKeyMap: Record<string, number> = {
+        super_admin: 1,
+        buyer: 2,
+        china_warehouse: 3,
+        lebanon_warehouse: 4,
+      };
+      if (roleKeyMap[role_key]) {
+        updateData.user_role = roleKeyMap[role_key];
+
+        // Update cms_user_roles: delete old, insert new
+        const cmsRole = await prisma.cms_roles.findFirst({
+          where: { role_key },
+        });
+        if (cmsRole) {
+          await prisma.cms_user_roles.deleteMany({
+            where: { user_id: userId },
+          });
+          await prisma.cms_user_roles.create({
+            data: {
+              user_id: userId,
+              role_id: cmsRole.id,
+            },
+          });
+        }
+      }
+    }
+
     const user = await prisma.ag_users.update({
       where: { user_id: userId },
       data: updateData,
@@ -137,6 +167,7 @@ export async function PUT(
         last_name: true,
         email_address: true,
         phone_number_one: true,
+        user_role: true,
         created_at: true,
       },
     });

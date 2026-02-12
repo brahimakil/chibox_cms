@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -13,6 +14,7 @@ import {
   Users,
   ShieldCheck,
   Bell,
+  ClipboardList,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -22,42 +24,62 @@ const navigation = [
   {
     title: "Main",
     items: [
-      { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-      { title: "Orders", href: "/dashboard/orders", icon: ShoppingCart },
-      { title: "Products", href: "/dashboard/products", icon: Package },
-      { title: "Categories", href: "/dashboard/categories", icon: FolderTree },
+      { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard, permission: "page.dashboard" },
+      { title: "Orders", href: "/dashboard/orders", icon: ShoppingCart, permission: "page.orders" },
+      { title: "Item List", href: "/dashboard/items", icon: ClipboardList, permission: "page.orders.item_master_list" },
+      { title: "Products", href: "/dashboard/products", icon: Package, permission: "page.products" },
+      { title: "Categories", href: "/dashboard/categories", icon: FolderTree, permission: "page.categories" },
     ],
   },
   {
     title: "Marketing",
     items: [
-      { title: "Banners", href: "/dashboard/banners", icon: Image },
-      { title: "Coupons", href: "/dashboard/coupons", icon: Ticket },
-      { title: "Flash Sales", href: "/dashboard/flash-sales", icon: Zap },
+      { title: "Banners", href: "/dashboard/banners", icon: Image, permission: "page.banners" },
+      { title: "Coupons", href: "/dashboard/coupons", icon: Ticket, permission: "page.coupons" },
+      { title: "Flash Sales", href: "/dashboard/flash-sales", icon: Zap, permission: "page.flash_sales" },
     ],
   },
   {
     title: "People",
     items: [
-      { title: "Customers", href: "/dashboard/customers", icon: Users },
-      { title: "CMS Users", href: "/dashboard/cms-users", icon: ShieldCheck },
+      { title: "Customers", href: "/dashboard/customers", icon: Users, permission: "page.customers" },
+      { title: "CMS Users", href: "/dashboard/cms-users", icon: ShieldCheck, permission: "page.cms_users" },
     ],
   },
   {
     title: "Communication",
     items: [
-      { title: "Notifications", href: "/dashboard/notifications", icon: Bell },
+      { title: "Notifications", href: "/dashboard/notifications", icon: Bell, permission: "page.notifications" },
     ],
   },
 ];
 
 export function MobileSidebar() {
   const pathname = usePathname();
+  const [permissions, setPermissions] = useState<string[]>([]);
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.user?.permissions) setPermissions(d.user.permissions);
+      })
+      .catch(() => {});
+  }, []);
+
+  const filteredNavigation = navigation
+    .map((group) => ({
+      ...group,
+      items: group.items.filter(
+        (item) => !item.permission || permissions.includes(item.permission)
+      ),
+    }))
+    .filter((group) => group.items.length > 0);
 
   return (
     <ScrollArea className="h-[calc(100vh-5rem)]">
       <nav className="flex flex-col gap-1 p-3">
-        {navigation.map((group) => (
+        {filteredNavigation.map((group) => (
           <div key={group.title} className="mb-3">
             <p className="mb-1 px-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
               {group.title}

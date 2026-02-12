@@ -22,11 +22,41 @@ export async function GET() {
       created_at: true,
       gender: true,
       main_image: true,
+      cms_user_roles: {
+        select: {
+          cms_roles: {
+            select: {
+              id: true,
+              role_key: true,
+              role_name: true,
+            },
+          },
+        },
+        take: 1,
+      },
     },
     orderBy: { created_at: "desc" },
   });
 
-  return NextResponse.json({ users });
+  // Flatten the role info for the frontend
+  const usersWithRole = users.map((u) => {
+    const roleEntry = u.cms_user_roles?.[0]?.cms_roles;
+    return {
+      ...u,
+      cms_user_roles: undefined,
+      role_key: roleEntry?.role_key || null,
+      role_name: roleEntry?.role_name || null,
+      role_id: roleEntry?.id || null,
+    };
+  });
+
+  // Also return available roles for dropdowns
+  const roles = await prisma.cms_roles.findMany({
+    select: { id: true, role_key: true, role_name: true },
+    orderBy: { id: "asc" },
+  });
+
+  return NextResponse.json({ users: usersWithRole, roles });
 }
 
 // POST /api/cms-users — create a new CMS admin user
@@ -46,6 +76,7 @@ export async function POST(request: NextRequest) {
       phone_number_one,
       password,
       country_code,
+      role_key,
     } = body;
 
     if (!user_name || !password) {
@@ -86,6 +117,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Map role_key to user_role integer
+    const roleKeyMap: Record<string, number> = {
+      super_admin: 1,
+      buyer: 2,
+      china_warehouse: 3,
+      lebanon_warehouse: 4,
+    };
+    const selectedRoleKey = role_key && roleKeyMap[role_key] ? role_key : "super_admin";
+    const userRoleInt = roleKeyMap[selectedRoleKey];
+
     const hashedPassword = await hashPassword(password);
 
     const user = await prisma.ag_users.create({
@@ -96,7 +137,7 @@ export async function POST(request: NextRequest) {
         email_address: email_address || null,
         phone_number_one: phone_number_one || null,
         user_password: hashedPassword,
-        user_role: 1, // Admin
+        user_role: userRoleInt,
         country_code: country_code || "LB",
         created_by: session.userId,
       },
@@ -109,6 +150,19 @@ export async function POST(request: NextRequest) {
         created_at: true,
       },
     });
+
+    // Create cms_user_roles entry
+    const cmsRole = await prisma.cms_roles.findFirst({
+      where: { role_key: selectedRoleKey },
+    });
+    if (cmsRole) {
+      await prisma.cms_user_roles.create({
+        data: {
+          user_id: user.user_id,
+          role_id: cmsRole.id,
+        },
+      });
+    }
 
     return NextResponse.json({ user }, { status: 201 });
   } catch (error) {

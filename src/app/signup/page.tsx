@@ -5,6 +5,13 @@ import { useRouter } from "next/navigation";
 import { Package, Eye, EyeOff, Loader2 } from "lucide-react";
 import Link from "next/link";
 
+const ROLE_OPTIONS = [
+  { key: "super_admin", label: "Super Admin", description: "Full access to everything" },
+  { key: "buyer", label: "Buyer", description: "Manages purchasing & orders from suppliers" },
+  { key: "china_warehouse", label: "China Warehouse", description: "Handles China warehouse operations" },
+  { key: "lebanon_warehouse", label: "Lebanon Warehouse", description: "Handles Lebanon warehouse operations" },
+] as const;
+
 export default function SignupPage() {
   const router = useRouter();
   const [checking, setChecking] = useState(true);
@@ -16,6 +23,7 @@ export default function SignupPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [roleKey, setRoleKey] = useState("super_admin");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -51,6 +59,7 @@ export default function SignupPage() {
           last_name: lastName,
           email_address: email,
           password,
+          role_key: roleKey,
         }),
       });
 
@@ -95,7 +104,7 @@ export default function SignupPage() {
               Setup ChiHelo CMS
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Create the first admin account to get started
+              Create a CMS account with a specific role
             </p>
           </div>
         </div>
@@ -188,6 +197,28 @@ export default function SignupPage() {
               />
             </div>
 
+            {/* Role */}
+            <div className="space-y-1.5">
+              <label
+                htmlFor="role"
+                className="text-sm font-medium leading-none"
+              >
+                Role <span className="text-destructive">*</span>
+              </label>
+              <select
+                id="role"
+                value={roleKey}
+                onChange={(e) => setRoleKey(e.target.value)}
+                className="flex h-11 w-full rounded-lg border bg-background px-3 text-sm outline-none transition-colors focus:border-ring focus:ring-2 focus:ring-ring/20"
+              >
+                {ROLE_OPTIONS.map((r) => (
+                  <option key={r.key} value={r.key}>
+                    {r.label} — {r.description}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             {/* Password */}
             <div className="space-y-1.5">
               <label
@@ -255,7 +286,7 @@ export default function SignupPage() {
                   Creating account...
                 </>
               ) : (
-                "Create Admin Account"
+                "Create Account"
               )}
             </button>
           </form>

@@ -16,6 +16,9 @@ export interface SessionPayload {
   email: string | null;
   firstName: string | null;
   lastName: string | null;
+  roleKey: string;
+  roleName: string;
+  permissions: string[];
 }
 
 export async function createSession(user: {
@@ -24,13 +27,16 @@ export async function createSession(user: {
   email_address: string | null;
   first_name: string | null;
   last_name: string | null;
-}) {
+}, role: { roleKey: string; roleName: string; permissions: string[] }) {
   const payload: SessionPayload = {
     userId: user.user_id,
     username: user.user_name,
     email: user.email_address,
     firstName: user.first_name,
     lastName: user.last_name,
+    roleKey: role.roleKey,
+    roleName: role.roleName,
+    permissions: role.permissions,
   };
 
   const token = await new SignJWT(payload as unknown as Record<string, unknown>)

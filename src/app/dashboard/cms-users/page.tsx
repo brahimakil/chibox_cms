@@ -38,10 +38,18 @@ interface CmsUser {
   email_address: string | null;
   phone_number_one: string | null;
   user_role: number;
+  role_key: string | null;
+  role_name: string | null;
   last_login: string | null;
   created_at: string;
   gender: string | null;
   main_image: string | null;
+}
+
+interface CmsRole {
+  id: number;
+  role_key: string;
+  role_name: string;
 }
 
 interface FormData {
@@ -51,6 +59,7 @@ interface FormData {
   email_address: string;
   phone_number_one: string;
   password: string;
+  role_key: string;
 }
 
 const emptyForm: FormData = {
@@ -60,10 +69,19 @@ const emptyForm: FormData = {
   email_address: "",
   phone_number_one: "",
   password: "",
+  role_key: "super_admin",
+};
+
+const ROLE_COLORS: Record<string, string> = {
+  super_admin: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
+  buyer: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
+  china_warehouse: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",
+  lebanon_warehouse: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
 };
 
 export default function CmsUsersPage() {
   const [users, setUsers] = useState<CmsUser[]>([]);
+  const [roles, setRoles] = useState<CmsRole[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
 
@@ -84,6 +102,7 @@ export default function CmsUsersPage() {
       const res = await fetch("/api/cms-users");
       const data = await res.json();
       setUsers(data.users || []);
+      if (data.roles) setRoles(data.roles);
     } catch {
       // silently fail
     } finally {
@@ -112,6 +131,7 @@ export default function CmsUsersPage() {
       email_address: user.email_address || "",
       phone_number_one: user.phone_number_one || "",
       password: "",
+      role_key: user.role_key || "super_admin",
     });
     setShowPassword(false);
     setError("");
@@ -289,6 +309,7 @@ export default function CmsUsersPage() {
               <thead>
                 <tr className="border-b bg-muted/50 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
                   <th className="px-4 py-3">User</th>
+                  <th className="px-4 py-3">Role</th>
                   <th className="px-4 py-3">Contact</th>
                   <th className="px-4 py-3">Last Login</th>
                   <th className="px-4 py-3">Created</th>
@@ -319,6 +340,14 @@ export default function CmsUsersPage() {
                           </p>
                         </div>
                       </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <Badge
+                        variant="secondary"
+                        className={`text-xs font-medium ${ROLE_COLORS[user.role_key || ""] || "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"}`}
+                      >
+                        {user.role_name || "No Role"}
+                      </Badge>
                     </td>
                     <td className="px-4 py-3">
                       <div className="space-y-0.5">
@@ -401,6 +430,12 @@ export default function CmsUsersPage() {
                       <p className="text-xs text-muted-foreground">
                         @{user.user_name}
                       </p>
+                      <Badge
+                        variant="secondary"
+                        className={`mt-1 text-xs font-medium ${ROLE_COLORS[user.role_key || ""] || "bg-gray-100 text-gray-800"}`}
+                      >
+                        {user.role_name || "No Role"}
+                      </Badge>
                     </div>
                   </div>
                   <div className="flex gap-1">
@@ -532,6 +567,35 @@ export default function CmsUsersPage() {
                 }
                 placeholder="+961 XX XXX XXX"
               />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="role_key">
+                Role <span className="text-destructive">*</span>
+              </Label>
+              <select
+                id="role_key"
+                value={form.role_key}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, role_key: e.target.value }))
+                }
+                className="flex h-9 w-full rounded-md border border-input bg-background text-foreground px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring [&>option]:bg-background [&>option]:text-foreground"
+              >
+                {roles.length > 0
+                  ? roles.map((r) => (
+                      <option key={r.role_key} value={r.role_key}>
+                        {r.role_name}
+                      </option>
+                    ))
+                  : (
+                    <>
+                      <option value="super_admin">Super Admin</option>
+                      <option value="buyer">Buyer</option>
+                      <option value="china_warehouse">China Warehouse</option>
+                      <option value="lebanon_warehouse">Lebanon Warehouse</option>
+                    </>
+                  )}
+              </select>
             </div>
 
             <div className="space-y-1.5">

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createSession, verifyPassword } from "@/lib/auth";
+import { getUserRoleAndPermissions } from "@/lib/rbac";
 
 export async function POST(request: NextRequest) {
   try {
@@ -41,7 +42,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Create session
-    await createSession(user);
+    const role = await getUserRoleAndPermissions(user.user_id);
+    await createSession(user, role);
 
     return NextResponse.json({
       success: true,
@@ -51,6 +53,9 @@ export async function POST(request: NextRequest) {
         firstName: user.first_name,
         lastName: user.last_name,
         email: user.email_address,
+        roleKey: role.roleKey,
+        roleName: role.roleName,
+        permissions: role.permissions,
       },
     });
   } catch (error) {

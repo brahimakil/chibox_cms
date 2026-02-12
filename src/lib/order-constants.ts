@@ -44,3 +44,17 @@ export const VALID_STATUS_TRANSITIONS: Record<number, number[]> = {
   7: [9],                  // Failed → Pending (retry)
   8: [1, 2, 5, 9],        // On Hold → Confirmed, Processing, Cancelled, Pending
 };
+
+/* ── Workflow status constants (7-step + terminal) ───────────────── */
+
+export const WORKFLOW_STATUS: Record<string, { label: string; color: string; order: number; isTerminal: boolean }> = {
+  processing:            { label: "Processing",           color: "yellow",  order: 1,  isTerminal: false },
+  ordered:               { label: "Ordered",              color: "blue",    order: 2,  isTerminal: false },
+  shipped_to_wh:         { label: "Shipped to WH",        color: "indigo",  order: 3,  isTerminal: false },
+  received_to_wh:        { label: "Received to WH",       color: "cyan",    order: 4,  isTerminal: false },
+  shipped_to_leb:        { label: "Shipped to LEB",       color: "purple",  order: 5,  isTerminal: false },
+  received_to_leb:       { label: "Received to LEB",      color: "violet",  order: 6,  isTerminal: false },
+  delivered_to_customer:  { label: "Delivered to Customer", color: "green",   order: 7,  isTerminal: false },
+  cancelled:             { label: "Cancelled",            color: "red",     order: 90, isTerminal: true },
+  refunded:              { label: "Refunded",             color: "orange",  order: 91, isTerminal: true },
+};

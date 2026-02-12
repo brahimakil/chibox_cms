@@ -32,10 +32,9 @@ import {
 } from "lucide-react";
 import { resolveImageUrl } from "@/lib/image-url";
 import {
-  ORDER_STATUS,
   SHIPPING_STATUS,
   PAYMENT_TYPES,
-  VALID_STATUS_TRANSITIONS,
+  WORKFLOW_STATUS,
 } from "@/lib/order-constants";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -154,18 +153,17 @@ export default function OrderDetailPage({
   // Item-level editing states
   const [editingItem, setEditingItem] = useState<number | null>(null);
   const [itemSaving, setItemSaving] = useState<number | null>(null);
-  const [itemForms, setItemForms] = useState<Record<number, { status: number; tracking_number: string; shipping_method: string; shipping: string; quantity: string }>>({});
+  const [itemForms, setItemForms] = useState<Record<number, { workflow_status_key: string; tracking_number: string; shipping_method: string; shipping: string; quantity: string }>>({});
 
   const startEditItem = (p: any) => {
     setEditingItem(p.id);
-    // Use the pre-fetched air/sea cost based on item's current shipping method
     const method = p.shipping_method || "air";
     const calcCost = method === "air" ? p.shipping_air : p.shipping_sea;
     const shippingValue = (p.shipping && Number(p.shipping) > 0) ? p.shipping : (calcCost ?? 0);
     setItemForms((prev) => ({
       ...prev,
       [p.id]: {
-        status: p.status ?? 9,
+        workflow_status_key: p.workflow_status_key || "processing",
         tracking_number: p.tracking_number || "",
         shipping_method: method,
         shipping: String(shippingValue),
@@ -188,7 +186,7 @@ export default function OrderDetailPage({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           item_id: itemId,
-          status: form.status,
+          workflow_status_key: form.workflow_status_key,
           tracking_number: form.tracking_number,
           shipping_method: form.shipping_method,
           shipping: Number(form.shipping),
@@ -251,26 +249,8 @@ export default function OrderDetailPage({
     fetchInvoices();
   }, [fetchOrder, fetchInvoices]);
 
-  // ── Handle status change ──────────────────────────────────────────
-  const handleStatusChange = async (newStatus: number) => {
-    if (!confirm(`Change status to "${ORDER_STATUS[newStatus]?.label}"?`)) return;
-    setStatusChanging(true);
-    try {
-      const res = await fetch(`/api/orders/${id}/status`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: newStatus }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Failed");
-      showToast(`Status updated to ${ORDER_STATUS[newStatus]?.label}`, "success");
-      await fetchOrder();
-    } catch (err: any) {
-      showToast(err.message, "error");
-    } finally {
-      setStatusChanging(false);
-    }
-  };
+  // ── Handle status change — now managed per-item in Items page ──
+  // Order-level status is derived from items' workflow statuses
 
   // ── Fetch shipping estimates for both methods ──────────────────────
   const fetchShippingEstimates = async () => {
@@ -495,7 +475,6 @@ export default function OrderDetailPage({
   }
 
   const { order, products, tracking, transactions, customer, coupon } = data;
-  const allowedTransitions = VALID_STATUS_TRANSITIONS[order.status] || [];
 
   return (
     <div className="space-y-5">
@@ -550,40 +529,39 @@ export default function OrderDetailPage({
       <div className="grid gap-5 lg:grid-cols-3">
         {/* Left column — 2/3 */}
         <div className="space-y-5 lg:col-span-2">
-          {/* ── Section B: Status Management ───────────────────────── */}
-          <SectionCard title="Status Management" icon={Clock}>
+          {/* ── Section B: Order Workflow Status (derived from items) ── */}
+          <SectionCard title="Order Workflow Status" icon={Clock}>
             <div className="space-y-4">
               <div className="flex items-center gap-3 flex-wrap">
                 <span className="text-sm text-muted-foreground">Current:</span>
                 <StatusBadge label={order.status_label} color={order.status_color} large />
-                <ChevronDown className="h-4 w-4 text-muted-foreground" />
               </div>
+              <p className="text-xs text-muted-foreground">
+                This status is automatically derived from the items&apos; workflow statuses (lowest progress among active items).
+                To change item statuses individually, use the{" "}
+                <Link href="/dashboard/items" className="text-primary hover:underline font-medium">
+                  Item List
+                </Link>
+                {" "}page, or edit items below.
+              </p>
 
-              {allowedTransitions.length > 0 ? (
-                <div className="flex gap-2 flex-wrap">
-                  {allowedTransitions.map((s: number) => {
-                    const st = ORDER_STATUS[s];
-                    if (!st) return null;
-                    return (
-                      <button
-                        key={s}
-                        onClick={() => handleStatusChange(s)}
-                        disabled={statusChanging}
-                        className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium hover:bg-accent transition-colors disabled:opacity-50"
-                      >
-                        {statusChanging ? (
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                        ) : null}
-                        → {st.label}
-                      </button>
-                    );
-                  })}
+              {/* Per-item status summary */}
+              <div className="border-t pt-3">
+                <p className="text-xs font-medium text-muted-foreground mb-2">Item Status Breakdown:</p>
+                <div className="flex flex-wrap gap-2">
+                  {products.map((p: any) => (
+                    <div key={p.id} className="flex items-center gap-1.5 rounded-md border px-2 py-1">
+                      <span className="text-xs text-muted-foreground truncate max-w-[120px]" title={p.product_name}>
+                        #{p.id}
+                      </span>
+                      <StatusBadge
+                        label={p.status_label}
+                        color={p.status_color}
+                      />
+                    </div>
+                  ))}
                 </div>
-              ) : (
-                <p className="text-sm text-muted-foreground italic">
-                  No further status transitions available.
-                </p>
-              )}
+              </div>
             </div>
           </SectionCard>
 
@@ -787,8 +765,8 @@ export default function OrderDetailPage({
                       {/* Item status badge + tracking */}
                       <div className="mt-2 flex items-center gap-2 flex-wrap">
                         <StatusBadge
-                          label={p.status_label || ORDER_STATUS[p.status ?? 9]?.label || "Pending"}
-                          color={p.status_color || ORDER_STATUS[p.status ?? 9]?.color || "gray"}
+                          label={p.status_label || "Processing"}
+                          color={p.status_color || "yellow"}
                         />
                         {p.tracking_number && (
                           <span className="inline-flex items-center gap-1 rounded bg-muted px-2 py-0.5 text-[10px] text-muted-foreground font-mono">
@@ -863,19 +841,19 @@ export default function OrderDetailPage({
                     <div className="mt-3 border-t pt-3 grid grid-cols-2 gap-3">
                       {/* Status */}
                       <div>
-                        <label className="text-xs font-medium text-muted-foreground">Status</label>
+                        <label className="text-xs font-medium text-muted-foreground">Workflow Status</label>
                         <select
                           className="mt-1 w-full rounded-md border bg-background px-2 py-1.5 text-sm"
-                          value={itemForms[p.id].status}
+                          value={itemForms[p.id].workflow_status_key}
                           onChange={(e) =>
                             setItemForms((prev) => ({
                               ...prev,
-                              [p.id]: { ...prev[p.id], status: Number(e.target.value) },
+                              [p.id]: { ...prev[p.id], workflow_status_key: e.target.value },
                             }))
                           }
                         >
-                          {Object.entries(ORDER_STATUS).map(([val, s]) => (
-                            <option key={val} value={val}>
+                          {Object.entries(WORKFLOW_STATUS).map(([key, s]) => (
+                            <option key={key} value={key}>
                               {s.label}
                             </option>
                           ))}

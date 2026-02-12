@@ -20,9 +20,21 @@ import {
   ArrowUpDown,
   ChevronsUpDown,
 } from "lucide-react";
-import { ORDER_STATUS, SHIPPING_STATUS } from "@/lib/order-constants";
+import { SHIPPING_STATUS } from "@/lib/order-constants";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+const WORKFLOW_STATUSES = [
+  { key: "processing", label: "Processing" },
+  { key: "ordered", label: "Ordered" },
+  { key: "shipped_to_wh", label: "Shipped to WH" },
+  { key: "received_to_wh", label: "Received to WH" },
+  { key: "shipped_to_leb", label: "Shipped to LEB" },
+  { key: "received_to_leb", label: "Received to LEB" },
+  { key: "delivered_to_customer", label: "Delivered to Customer" },
+  { key: "cancelled", label: "Cancelled" },
+  { key: "refunded", label: "Refunded" },
+];
 
 // ── Status badge component ────────────────────────────────────────────
 function StatusBadge({ label, color }: { label: string; color: string }) {
@@ -228,8 +240,8 @@ export default function OrdersPage() {
       {/* Quick Stats */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <StatCard icon={ShoppingCart} label="Total Orders" value={stats.totalOrders ?? "—"} color="blue" />
-        <StatCard icon={Clock} label="Pending Review" value={stats.pendingReview ?? "—"} color="yellow" />
-        <StatCard icon={Truck} label="Ready to Ship" value={stats.readyToShip ?? "—"} color="green" />
+        <StatCard icon={Clock} label="Processing Items" value={stats.processingCount ?? "—"} color="yellow" />
+        <StatCard icon={Truck} label="In Transit to LEB" value={stats.inTransitCount ?? "—"} color="green" />
         <StatCard
           icon={DollarSign}
           label="Today Revenue"
@@ -274,9 +286,9 @@ export default function OrdersPage() {
                 className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
               >
                 <option value="">All</option>
-                {Object.entries(ORDER_STATUS).map(([code, { label }]) => (
-                  <option key={code} value={code}>
-                    {label}
+                {WORKFLOW_STATUSES.map((ws) => (
+                  <option key={ws.key} value={ws.key}>
+                    {ws.label}
                   </option>
                 ))}
               </select>

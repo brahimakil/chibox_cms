@@ -1,7 +1,19 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { ORDER_STATUS, SHIPPING_STATUS, PAYMENT_TYPES } from "@/lib/order-constants";
+import { SHIPPING_STATUS, PAYMENT_TYPES } from "@/lib/order-constants";
+
+const STATUS_COLORS: Record<string, string> = {
+  processing: "yellow",
+  ordered: "blue",
+  shipped_to_wh: "indigo",
+  received_to_wh: "cyan",
+  shipped_to_leb: "purple",
+  received_to_leb: "violet",
+  delivered_to_customer: "green",
+  cancelled: "red",
+  refunded: "orange",
+};
 
 /**
  * GET /api/orders/[id] — Full order detail with products, tracking, transactions
@@ -141,12 +153,22 @@ export async function GET(
       console.warn("Backend shipping calculate for per-item costs failed (non-fatal):", err);
     }
 
+    // ── Fetch workflow statuses for items ─────────────────────────
+    const allWorkflowStatuses = await prisma.cms_order_item_statuses.findMany({
+      where: { is_active: 1 },
+    });
+    const workflowStatusMap = new Map(allWorkflowStatuses.map((s) => [s.id, s]));
+
     // ── Enrich order products ──────────────────────────────────────
     const enrichedProducts = orderProducts.map((op) => {
       const storedShipping = op.shipping ? Number(op.shipping) : 0;
       const methodMap = shippingMethod === "sea" ? seaShippingMap : airShippingMap;
       const calcShipping = methodMap.get(op.r_product_id) ?? 0;
       const effectiveShipping = storedShipping > 0 ? storedShipping : calcShipping;
+
+      const ws = op.workflow_status_id ? workflowStatusMap.get(op.workflow_status_id) : null;
+      const statusKey = ws?.status_key || "processing";
+      const statusLabel = ws?.status_label || "Processing";
 
       return {
         ...op,
@@ -158,9 +180,12 @@ export async function GET(
         shipping: effectiveShipping,
         shipping_air: airShippingMap.get(op.r_product_id) ?? 0,
         shipping_sea: seaShippingMap.get(op.r_product_id) ?? 0,
-        status: op.status ?? 9,
-        status_label: ORDER_STATUS[op.status ?? 9]?.label || `Status ${op.status}`,
-        status_color: ORDER_STATUS[op.status ?? 9]?.color || "gray",
+        workflow_status_key: statusKey,
+        workflow_status_label: statusLabel,
+        workflow_status_id: op.workflow_status_id,
+        is_terminal: ws?.is_terminal === 1,
+        status_label: statusLabel,
+        status_color: STATUS_COLORS[statusKey] || "gray",
         tracking_number: op.tracking_number || null,
         variations: variationsByOp.get(op.id) || [],
         store_info: storeInfoMap.get(op.r_product_id) || null,
@@ -168,11 +193,15 @@ export async function GET(
     });
 
     // ── Enrich tracking with status labels ─────────────────────────
-    const enrichedTracking = orderTracking.map((t) => ({
-      ...t,
-      status_label: ORDER_STATUS[t.r_status_id]?.label || `Status ${t.r_status_id}`,
-      status_color: ORDER_STATUS[t.r_status_id]?.color || "gray",
-    }));
+    const enrichedTracking = orderTracking.map((t) => {
+      // Try to find a workflow status that matches, otherwise use a generic label
+      const ws = allWorkflowStatuses.find((s) => s.id === t.r_status_id);
+      return {
+        ...t,
+        status_label: ws?.status_label || `Status ${t.r_status_id}`,
+        status_color: ws ? (STATUS_COLORS[ws.status_key] || "gray") : "gray",
+      };
+    });
 
     // ── Enrich transactions ────────────────────────────────────────
     const enrichedTransactions = paymentTransactions.map((pt) => ({
@@ -180,13 +209,41 @@ export async function GET(
       amount: Number(pt.amount),
     }));
 
+    // ── Derive order-level workflow status from items ───────────────
+    let orderStatusKey = "processing";
+    let orderStatusLabel = "Processing";
+    if (enrichedProducts.length > 0) {
+      // Lowest status_order among non-terminal items
+      let lowestOrder = Infinity;
+      let allTerminal = true;
+      for (const p of enrichedProducts) {
+        const ws = p.workflow_status_id ? workflowStatusMap.get(p.workflow_status_id) : null;
+        if (!ws || ws.is_terminal !== 1) allTerminal = false;
+        const so = ws?.status_order ?? 1;
+        if (ws?.is_terminal === 1) continue;
+        if (so < lowestOrder) {
+          lowestOrder = so;
+          orderStatusKey = ws?.status_key || "processing";
+          orderStatusLabel = ws?.status_label || "Processing";
+        }
+      }
+      if (allTerminal) {
+        const firstWs = enrichedProducts[0].workflow_status_id
+          ? workflowStatusMap.get(enrichedProducts[0].workflow_status_id)
+          : null;
+        orderStatusKey = firstWs?.status_key || "processing";
+        orderStatusLabel = firstWs?.status_label || "Processing";
+      }
+    }
+
     // ── Build response ─────────────────────────────────────────────
     return NextResponse.json({
       order: {
         ...order,
         refund_amount: order.refund_amount ? Number(order.refund_amount) : null,
-        status_label: ORDER_STATUS[order.status]?.label || `Status ${order.status}`,
-        status_color: ORDER_STATUS[order.status]?.color || "gray",
+        status_label: orderStatusLabel,
+        status_color: STATUS_COLORS[orderStatusKey] || "gray",
+        status_key: orderStatusKey,
         shipping_status_label: SHIPPING_STATUS[order.shipping_status]?.label || "Unknown",
         shipping_status_color: SHIPPING_STATUS[order.shipping_status]?.color || "gray",
         payment_type_label: PAYMENT_TYPES[order.payment_type] || `Type ${order.payment_type}`,

@@ -6,5 +6,16 @@ export async function GET() {
   if (!session) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
-  return NextResponse.json({ user: session });
+  return NextResponse.json({
+    user: {
+      userId: session.userId,
+      username: session.username,
+      email: session.email,
+      firstName: session.firstName,
+      lastName: session.lastName,
+      roleKey: session.roleKey,
+      roleName: session.roleName,
+      permissions: session.permissions,
+    },
+  });
 }

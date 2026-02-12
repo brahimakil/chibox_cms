@@ -19,6 +19,14 @@ const nextConfig: NextConfig = {
         protocol: "https",
         hostname: "cms2.devback.website",
       },
+      {
+        protocol: "https",
+        hostname: "**.1688.com",
+      },
+      {
+        protocol: "http",
+        hostname: "**.1688.com",
+      },
     ],
   },
 };

@@ -1,15 +1,14 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { VALID_STATUS_TRANSITIONS, ORDER_STATUS } from "@/lib/order-constants";
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL || "https://cms2.devback.website";
 
 /**
- * PUT /api/orders/[id]/status — Update order status
+ * PUT /api/orders/[id]/status — Bulk-update all non-terminal order items to a new workflow status
  *
- * Body: { status: number }
+ * Body: { workflow_status_key: string }   e.g. "ordered", "shipped_to_wh", etc.
  */
 export async function PUT(
   req: NextRequest,
@@ -19,60 +18,66 @@ export async function PUT(
     const { id } = await params;
     const orderId = Number(id);
     const body = await req.json();
-    const newStatus = Number(body.status);
+    const { workflow_status_key } = body;
 
-    if (!ORDER_STATUS[newStatus]) {
-      return NextResponse.json({ error: "Invalid status code" }, { status: 400 });
+    if (!workflow_status_key) {
+      return NextResponse.json({ error: "workflow_status_key is required" }, { status: 400 });
+    }
+
+    // Look up the workflow status
+    const newStatus = await prisma.cms_order_item_statuses.findFirst({
+      where: { status_key: workflow_status_key },
+    });
+
+    if (!newStatus) {
+      return NextResponse.json({ error: `Invalid workflow status key: ${workflow_status_key}` }, { status: 400 });
     }
 
     // Get current order
     const order = await prisma.orders.findUnique({
       where: { id: orderId },
-      select: { id: true, status: true, r_user_id: true, shipping_status: true, is_paid: true },
+      select: { id: true, r_user_id: true },
     });
 
     if (!order) {
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }
 
-    // Validate transition
-    const allowed = VALID_STATUS_TRANSITIONS[order.status] || [];
-    if (!allowed.includes(newStatus)) {
-      return NextResponse.json(
-        {
-          error: `Cannot transition from ${ORDER_STATUS[order.status]?.label} to ${ORDER_STATUS[newStatus]?.label}`,
-        },
-        { status: 400 }
-      );
-    }
-
-    // Update status
-    await prisma.orders.update({
-      where: { id: orderId },
-      data: { status: newStatus, updated_at: new Date() },
+    // Find terminal statuses (cancelled, refunded) to exclude
+    const terminalStatuses = await prisma.cms_order_item_statuses.findMany({
+      where: { is_terminal: 1 },
     });
+    const terminalIds = terminalStatuses.map((s) => s.id);
 
-    // Cascade status to all non-cancelled order items
-    await prisma.order_products.updateMany({
+    // Update all non-terminal items to the new workflow status
+    const updateResult = await prisma.order_products.updateMany({
       where: {
         r_order_id: orderId,
-        status: { not: 5 }, // Skip cancelled items
+        ...(terminalIds.length > 0
+          ? { workflow_status_id: { notIn: terminalIds } }
+          : {}),
       },
-      data: { status: newStatus },
+      data: { workflow_status_id: newStatus.id },
     });
 
     // Create tracking entry
     await prisma.order_tracking.create({
       data: {
         r_order_id: orderId,
-        r_status_id: newStatus,
+        r_status_id: newStatus.status_order,
         track_date: new Date(),
       },
     });
 
+    // Update order timestamp
+    await prisma.orders.update({
+      where: { id: orderId },
+      data: { updated_at: new Date() },
+    });
+
     // Send notification via PHP backend
     try {
-      const statusLabel = ORDER_STATUS[newStatus]?.label || "Updated";
+      const statusLabel = newStatus.status_label;
       const user = await prisma.users.findUnique({
         where: { id: order.r_user_id },
         select: { mobile_token: true },
@@ -110,7 +115,7 @@ export async function PUT(
           body: JSON.stringify({
             message: `Your order has been ${statusLabel.toLowerCase()}.`,
             order_id: orderId,
-            status: newStatus,
+            workflow_status_key: workflow_status_key,
           }),
           row_id: orderId,
           created_by: 1,
@@ -120,7 +125,12 @@ export async function PUT(
       console.warn("Notification send failed (non-fatal):", notifErr);
     }
 
-    return NextResponse.json({ success: true, status: newStatus });
+    return NextResponse.json({
+      success: true,
+      workflow_status_key: workflow_status_key,
+      workflow_status_label: newStatus.status_label,
+      items_updated: updateResult.count,
+    });
   } catch (err) {
     console.error("PUT /api/orders/[id]/status error:", err);
     return NextResponse.json(

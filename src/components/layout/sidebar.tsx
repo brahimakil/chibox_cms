@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -16,6 +17,7 @@ import {
   Bell,
   ChevronLeft,
   ChevronRight,
+  ClipboardList,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -27,6 +29,10 @@ import {
 } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 
+/**
+ * Full navigation with required permission for each item.
+ * null = no permission check (always visible).
+ */
 const navigation = [
   {
     title: "Main",
@@ -35,21 +41,31 @@ const navigation = [
         title: "Dashboard",
         href: "/dashboard",
         icon: LayoutDashboard,
+        permission: "page.dashboard",
       },
       {
         title: "Orders",
         href: "/dashboard/orders",
         icon: ShoppingCart,
+        permission: "page.orders",
+      },
+      {
+        title: "Item List",
+        href: "/dashboard/items",
+        icon: ClipboardList,
+        permission: "page.orders.item_master_list",
       },
       {
         title: "Products",
         href: "/dashboard/products",
         icon: Package,
+        permission: "page.products",
       },
       {
         title: "Categories",
         href: "/dashboard/categories",
         icon: FolderTree,
+        permission: "page.categories",
       },
     ],
   },
@@ -60,21 +76,25 @@ const navigation = [
         title: "Banners",
         href: "/dashboard/banners",
         icon: Image,
+        permission: "page.banners",
       },
       {
         title: "Splash Ads",
         href: "/dashboard/splash-ads",
         icon: MonitorPlay,
+        permission: "page.splash_ads",
       },
       {
         title: "Coupons",
         href: "/dashboard/coupons",
         icon: Ticket,
+        permission: "page.coupons",
       },
       {
         title: "Flash Sales",
         href: "/dashboard/flash-sales",
         icon: Zap,
+        permission: "page.flash_sales",
       },
     ],
   },
@@ -85,11 +105,13 @@ const navigation = [
         title: "Customers",
         href: "/dashboard/customers",
         icon: Users,
+        permission: "page.customers",
       },
       {
         title: "CMS Users",
         href: "/dashboard/cms-users",
         icon: ShieldCheck,
+        permission: "page.cms_users",
       },
     ],
   },
@@ -100,6 +122,7 @@ const navigation = [
         title: "Notifications",
         href: "/dashboard/notifications",
         icon: Bell,
+        permission: "page.notifications",
       },
     ],
   },
@@ -112,6 +135,26 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
+  const [permissions, setPermissions] = useState<string[]>([]);
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.user?.permissions) setPermissions(d.user.permissions);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Filter navigation based on permissions
+  const filteredNavigation = navigation
+    .map((group) => ({
+      ...group,
+      items: group.items.filter(
+        (item) => !item.permission || permissions.includes(item.permission)
+      ),
+    }))
+    .filter((group) => group.items.length > 0);
 
   return (
     <TooltipProvider delayDuration={0}>
@@ -143,7 +186,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         {/* Navigation */}
         <ScrollArea className="h-[calc(100vh-8rem)]">
           <nav className="flex flex-col gap-1 p-3">
-            {navigation.map((group) => (
+            {filteredNavigation.map((group) => (
               <div key={group.title} className="mb-2">
                 {!collapsed && (
                   <p className="mb-1 px-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
