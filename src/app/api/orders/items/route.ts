@@ -34,8 +34,32 @@ export async function GET(req: NextRequest) {
     const sortBy = sp.get("sort_by") || "order_created_at";
     const sortDir = sp.get("sort_dir") === "asc" ? "asc" : "desc";
 
+    // ── Role-based visibility ───────────────────────────────────
+    // Each role only sees items in their relevant statuses
+    const ROLE_VISIBLE_STATUSES: Record<string, string[]> = {
+      buyer: ["processing", "ordered"],
+      china_warehouse: ["shipped_to_wh", "received_to_wh"],
+      lebanon_warehouse: ["shipped_to_leb", "received_to_leb"],
+    };
+
+    const visibleStatusKeys = ROLE_VISIBLE_STATUSES[session.roleKey] || null; // null = super_admin sees all
+    let roleStatusIds: number[] | null = null;
+
+    if (visibleStatusKeys) {
+      const visibleStatuses = await prisma.cms_order_item_statuses.findMany({
+        where: { status_key: { in: visibleStatusKeys }, is_active: 1 },
+        select: { id: true },
+      });
+      roleStatusIds = visibleStatuses.map((s) => s.id);
+    }
+
     // ── Build WHERE ─────────────────────────────────────────────
     const where: any = {};
+
+    // Apply role-based visibility filter
+    if (roleStatusIds) {
+      where.workflow_status_id = { in: roleStatusIds };
+    }
 
     if (search) {
       const num = Number(search);
@@ -59,7 +83,15 @@ export async function GET(req: NextRequest) {
         where: { status_key: workflowStatus },
       });
       if (ws) {
-        where.workflow_status_id = ws.id;
+        // If role-based filter is active, intersect with it
+        if (roleStatusIds) {
+          if (roleStatusIds.includes(ws.id)) {
+            where.workflow_status_id = ws.id;
+          }
+          // else keep the role filter (requested status not in their view)
+        } else {
+          where.workflow_status_id = ws.id;
+        }
       }
     }
 
@@ -171,8 +203,13 @@ export async function GET(req: NextRequest) {
     });
 
     // ── Workflow status counts for filter bar ────────────────────
+    const statusCountWhere: any = {};
+    if (roleStatusIds) {
+      statusCountWhere.workflow_status_id = { in: roleStatusIds };
+    }
     const statusCounts = await prisma.order_products.groupBy({
       by: ["workflow_status_id"],
+      where: statusCountWhere,
       _count: { id: true },
     });
 

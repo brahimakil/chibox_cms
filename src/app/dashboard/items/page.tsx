@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 // Using plain <img> for product images since they come from many unpredictable CDN domains
 import Link from "next/link";
 import {
@@ -14,6 +14,9 @@ import {
   Filter,
   X,
   Truck,
+  CheckSquare,
+  Square,
+  MinusSquare,
 } from "lucide-react";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -202,6 +205,9 @@ export default function ItemListPage() {
   const [statusFilter, setStatusFilter] = useState("");
   const [statusSummary, setStatusSummary] = useState<any[]>([]);
   const [selectedItem, setSelectedItem] = useState<any>(null);
+  const [orderIdFilter, setOrderIdFilter] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [showBulkModal, setShowBulkModal] = useState(false);
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
@@ -212,6 +218,7 @@ export default function ItemListPage() {
       });
       if (search) params.set("search", search);
       if (statusFilter) params.set("workflow_status", statusFilter);
+      if (orderIdFilter) params.set("order_id", orderIdFilter);
 
       const res = await fetch(`/api/orders/items?${params}`);
       const data = await res.json();
@@ -224,17 +231,54 @@ export default function ItemListPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, search, statusFilter]);
+  }, [page, search, statusFilter, orderIdFilter]);
 
   useEffect(() => {
     fetchItems();
   }, [fetchItems]);
+
+  // Clear selection when items change (page change, filter change, etc.)
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [items]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     setPage(1);
     fetchItems();
   };
+
+  // ── Selection helpers ───────────────────────────────────────
+  const selectableItems = useMemo(
+    () => items.filter((i) => !i.is_terminal),
+    [items]
+  );
+
+  const allSelectableSelected =
+    selectableItems.length > 0 && selectableItems.every((i) => selectedIds.has(i.id));
+  const someSelected = selectedIds.size > 0 && !allSelectableSelected;
+
+  const toggleSelectAll = () => {
+    if (allSelectableSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(selectableItems.map((i) => i.id)));
+    }
+  };
+
+  const toggleSelectItem = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectedItemsData = useMemo(
+    () => items.filter((i) => selectedIds.has(i.id)),
+    [items, selectedIds]
+  );
 
   return (
     <div className="space-y-6">
@@ -295,7 +339,7 @@ export default function ItemListPage() {
           ))}
       </div>
 
-      {/* Search */}
+      {/* Search + Order ID filter */}
       <form onSubmit={handleSearch} className="flex gap-2">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -307,16 +351,52 @@ export default function ItemListPage() {
             className="w-full rounded-md border py-2 pl-10 pr-4 text-sm"
           />
         </div>
-        {search && (
+        <div className="relative w-40">
+          <Filter className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="text"
+            value={orderIdFilter}
+            onChange={(e) => {
+              const val = e.target.value.replace(/\D/g, "");
+              setOrderIdFilter(val);
+              setPage(1);
+            }}
+            placeholder="Order #"
+            className="w-full rounded-md border py-2 pl-10 pr-4 text-sm"
+          />
+        </div>
+        {(search || orderIdFilter) && (
           <button
             type="button"
-            onClick={() => { setSearch(""); setPage(1); }}
+            onClick={() => { setSearch(""); setOrderIdFilter(""); setPage(1); }}
             className="rounded-md border px-3 py-2 text-sm"
           >
             <X className="h-4 w-4" />
           </button>
         )}
       </form>
+
+      {/* Bulk action bar */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3">
+          <CheckSquare className="h-5 w-5 text-primary" />
+          <span className="text-sm font-medium">
+            {selectedIds.size} item{selectedIds.size > 1 ? "s" : ""} selected
+          </span>
+          <button
+            onClick={() => setShowBulkModal(true)}
+            className="ml-2 rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+          >
+            Bulk Change Status
+          </button>
+          <button
+            onClick={() => setSelectedIds(new Set())}
+            className="ml-auto rounded-md border px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Clear Selection
+          </button>
+        </div>
+      )}
 
       {/* Table */}
       {loading ? (
@@ -333,6 +413,17 @@ export default function ItemListPage() {
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
               <tr>
+                <th className="w-10 px-4 py-3 text-left">
+                  <button onClick={toggleSelectAll} className="text-muted-foreground hover:text-foreground">
+                    {allSelectableSelected ? (
+                      <CheckSquare className="h-4 w-4" />
+                    ) : someSelected ? (
+                      <MinusSquare className="h-4 w-4" />
+                    ) : (
+                      <Square className="h-4 w-4" />
+                    )}
+                  </button>
+                </th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Item</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Order</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Qty</th>
@@ -344,7 +435,30 @@ export default function ItemListPage() {
             </thead>
             <tbody className="divide-y">
               {items.map((item) => (
-                <tr key={item.id} className="hover:bg-muted/30 transition-colors">
+                <tr
+                  key={item.id}
+                  onClick={() => { if (!item.is_terminal) toggleSelectItem(item.id); }}
+                  className={`hover:bg-muted/30 transition-colors ${
+                    !item.is_terminal ? "cursor-pointer" : ""
+                  } ${selectedIds.has(item.id) ? "bg-primary/5" : ""}`}
+                >
+                  {/* Checkbox */}
+                  <td className="px-4 py-3">
+                    {!item.is_terminal ? (
+                      <button
+                        onClick={() => toggleSelectItem(item.id)}
+                        className="text-muted-foreground hover:text-foreground"
+                      >
+                        {selectedIds.has(item.id) ? (
+                          <CheckSquare className="h-4 w-4 text-primary" />
+                        ) : (
+                          <Square className="h-4 w-4" />
+                        )}
+                      </button>
+                    ) : (
+                      <span className="inline-block h-4 w-4" />
+                    )}
+                  </td>
                   {/* Item info */}
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
@@ -480,6 +594,220 @@ export default function ItemListPage() {
           }}
         />
       )}
+
+      {/* Bulk workflow modal */}
+      {showBulkModal && selectedItemsData.length > 0 && (
+        <BulkWorkflowModal
+          items={selectedItemsData}
+          onClose={() => setShowBulkModal(false)}
+          onSuccess={() => {
+            setShowBulkModal(false);
+            setSelectedIds(new Set());
+            fetchItems();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Bulk Workflow Modal ──────────────────────────────────────────────
+function BulkWorkflowModal({
+  items,
+  onClose,
+  onSuccess,
+}: {
+  items: any[];
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [transitions, setTransitions] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [updating, setUpdating] = useState(false);
+  const [error, setError] = useState("");
+  const [result, setResult] = useState<any>(null);
+
+  // Find transitions that are common to ALL selected items
+  // by fetching each unique current-status's transitions and intersecting
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCommonTransitions() {
+      try {
+        // Get unique workflow status IDs across selected items
+        const uniqueStatusKeys = [...new Set(items.map((i) => i.workflow_status_key))];
+
+        // Fetch transitions for one representative item per status group
+        const transitionSets: Map<string, any>[] = [];
+        for (const statusKey of uniqueStatusKeys) {
+          const repr = items.find((i) => i.workflow_status_key === statusKey);
+          if (!repr) continue;
+
+          const res = await fetch(`/api/orders/items/${repr.id}/workflow`);
+          const data = await res.json();
+          const tMap = new Map<string, any>();
+          for (const t of data.allowed_transitions || []) {
+            tMap.set(t.toStatusKey, t);
+          }
+          transitionSets.push(tMap);
+        }
+
+        if (cancelled) return;
+
+        if (transitionSets.length === 0) {
+          setTransitions([]);
+          setLoading(false);
+          return;
+        }
+
+        // Intersect: only keep transitions available in ALL status groups
+        const firstSet = transitionSets[0];
+        const common: any[] = [];
+        for (const [key, t] of firstSet) {
+          if (transitionSets.every((s) => s.has(key))) {
+            common.push(t);
+          }
+        }
+
+        setTransitions(common);
+      } catch {
+        if (!cancelled) setTransitions([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    loadCommonTransitions();
+    return () => {
+      cancelled = true;
+    };
+  }, [items]);
+
+  const handleBulkTransition = async (toStatusKey: string) => {
+    setUpdating(true);
+    setError("");
+
+    try {
+      const res = await fetch("/api/orders/items/bulk-workflow", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          item_ids: items.map((i) => i.id),
+          to_status_key: toStatusKey,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Bulk update failed");
+        setUpdating(false);
+        return;
+      }
+
+      setResult(data);
+      // Auto-close after 1.5s if all succeeded
+      if (data.skipped_count === 0) {
+        setTimeout(() => onSuccess(), 1500);
+      }
+    } catch {
+      setError("Network error");
+      setUpdating(false);
+    }
+  };
+
+  // Group selected items by current status for summary
+  const statusGroups = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const item of items) {
+      const key = item.workflow_status_label || "Unset";
+      map.set(key, (map.get(key) || 0) + 1);
+    }
+    return [...map.entries()];
+  }, [items]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="w-full max-w-lg rounded-lg bg-background p-6 shadow-xl max-h-[90vh] overflow-y-auto">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-lg font-semibold">Bulk Change Status</h3>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="mb-4 rounded-md bg-muted/50 p-3">
+          <p className="text-sm font-medium mb-1">
+            {items.length} item{items.length > 1 ? "s" : ""} selected
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {statusGroups.map(([label, count]) => (
+              <span key={label} className="text-xs text-muted-foreground">
+                {label}: {count}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {error && (
+          <div className="mb-4 rounded bg-red-50 p-2 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-400">
+            {error}
+          </div>
+        )}
+
+        {result ? (
+          <div className="space-y-3">
+            <div className="rounded bg-green-50 p-3 text-sm text-green-700 dark:bg-green-900/20 dark:text-green-400">
+              Successfully updated {result.updated_count} item{result.updated_count !== 1 ? "s" : ""}
+              {" "}to <strong>{result.target_status?.label}</strong>
+            </div>
+            {result.skipped_count > 0 && (
+              <div className="rounded bg-yellow-50 p-3 text-sm text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-400">
+                <p className="font-medium mb-1">{result.skipped_count} item(s) skipped:</p>
+                <ul className="list-disc pl-4 space-y-0.5">
+                  {result.skipped?.map((s: any) => (
+                    <li key={s.id}>Item #{s.id}: {s.reason}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <button
+              onClick={onSuccess}
+              className="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              Done
+            </button>
+          </div>
+        ) : loading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : transitions.length === 0 ? (
+          <p className="py-4 text-center text-sm text-muted-foreground">
+            No common transitions available for the selected items.
+            {statusGroups.length > 1 && (
+              <span className="block mt-1 text-xs">
+                Try selecting items with the same current status.
+              </span>
+            )}
+          </p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {transitions.map((t: any) => (
+              <button
+                key={t.toStatusKey}
+                onClick={() => handleBulkTransition(t.toStatusKey)}
+                disabled={updating}
+                className={`flex items-center justify-between rounded-md border px-3 py-2.5 text-sm font-medium transition-colors hover:bg-accent disabled:opacity-50 ${
+                  t.isTerminal ? "border-red-200 text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-400" : ""
+                }`}
+              >
+                <span>→ {t.toStatusLabel} ({items.length} items)</span>
+                {updating && <Loader2 className="h-4 w-4 animate-spin" />}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
