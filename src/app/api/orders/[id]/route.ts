@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getSession } from "@/lib/auth";
 import { SHIPPING_STATUS, PAYMENT_TYPES } from "@/lib/order-constants";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -27,6 +28,11 @@ export async function GET(
     const orderId = Number(id);
     if (!orderId) {
       return NextResponse.json({ error: "Invalid order ID" }, { status: 400 });
+    }
+
+    const session = await getSession();
+    if (!session) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
 
     // ── Fetch order ────────────────────────────────────────────────
@@ -297,6 +303,7 @@ export async function GET(
       transactions: enrichedTransactions,
       customer,
       coupon,
+      roleKey: session.roleKey,
     });
   } catch (err) {
     console.error("GET /api/orders/[id] error:", err);

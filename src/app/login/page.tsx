@@ -32,7 +32,7 @@ export default function LoginPage() {
         return;
       }
 
-      router.push("/dashboard");
+      router.push("/dashboard/items");
       router.refresh();
     } catch {
       setError("Network error. Please try again.");

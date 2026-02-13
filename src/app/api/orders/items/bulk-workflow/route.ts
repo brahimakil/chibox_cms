@@ -10,6 +10,7 @@ import { hasPermission, getAllowedTransitions, deriveOrderStatusFromItems } from
  * Body: {
  *   item_ids: number[],           // up to 200 items per request
  *   to_status_key: string,        // target workflow status key
+ *   tracking_number?: string,     // optional — applies to all items
  * }
  *
  * Production considerations:
@@ -34,7 +35,7 @@ export async function PUT(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { item_ids, to_status_key } = body;
+    const { item_ids, to_status_key, tracking_number } = body;
 
     // ── Validation ─────────────────────────────────────────────
     if (!Array.isArray(item_ids) || item_ids.length === 0) {
@@ -131,6 +132,10 @@ export async function PUT(req: NextRequest) {
       workflow_status_updated_by: session.userId,
     };
 
+    if (tracking_number) {
+      updateData.tracking_number = tracking_number;
+    }
+
     // Legacy status mapping for terminal states
     if (to_status_key === "cancelled") updateData.status = 5;
     else if (to_status_key === "refunded") updateData.status = 6;
@@ -143,7 +148,7 @@ export async function PUT(req: NextRequest) {
       from_status_id: item.workflow_status_id!,
       to_status_id: targetStatus.id,
       changed_by_user_id: session.userId,
-      tracking_number_snapshot: item.tracking_number || null,
+      tracking_number_snapshot: tracking_number || item.tracking_number || null,
       note: "Bulk status change",
       changed_at: now,
     }));

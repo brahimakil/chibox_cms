@@ -114,6 +114,7 @@ export default function OrderDetailPage({
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [userRole, setUserRole] = useState<string>("");
 
   // Action states
   const [statusChanging, setStatusChanging] = useState(false);
@@ -216,6 +217,7 @@ export default function OrderDetailPage({
       if (!res.ok) throw new Error("Failed to fetch order");
       const json = await res.json();
       setData(json);
+      if (json.roleKey) setUserRole(json.roleKey);
       setNotes(json.order.notes || "");
       setShippingForm({
         shipping_method: json.order.shipping_method || "",
@@ -476,6 +478,9 @@ export default function OrderDetailPage({
 
   const { order, products, tracking, transactions, customer, coupon } = data;
 
+  // Lebanon warehouse has read-only access — no editing allowed
+  const canEdit = userRole !== "lebanon_warehouse";
+
   return (
     <div className="space-y-5">
       {/* Toast */}
@@ -570,7 +575,7 @@ export default function OrderDetailPage({
             title="Shipping Management"
             icon={Truck}
             actions={
-              order.shipping_status !== 2 && !shippingEditing ? (
+              canEdit && order.shipping_status !== 2 && !shippingEditing ? (
                 <button
                   onClick={startShippingEdit}
                   className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium hover:bg-accent"
@@ -588,7 +593,7 @@ export default function OrderDetailPage({
                   <StatusBadge label={order.shipping_status_label} color={order.shipping_status_color} large />
                 </div>
 
-                {order.shipping_status === 0 && (
+                {canEdit && order.shipping_status === 0 && (
                   <div className="space-y-2">
                     <p className="text-xs text-muted-foreground">
                       Shipping cost is under review. Confirm the price to enable the Pay button in the customer&apos;s app.
@@ -604,7 +609,7 @@ export default function OrderDetailPage({
                   </div>
                 )}
 
-                {order.shipping_status === 1 && (
+                {canEdit && order.shipping_status === 1 && (
                   <div className="space-y-2">
                     <p className="text-xs text-muted-foreground">
                       Price confirmed — waiting for customer payment. Customer sees a &ldquo;Pay&rdquo; button in the app.
@@ -628,7 +633,7 @@ export default function OrderDetailPage({
               </div>
 
               {/* Shipping Details — edit / view mode */}
-              {shippingEditing ? (
+              {canEdit && shippingEditing ? (
                 <div className="space-y-4">
                   {/* Method selector with calculated estimates */}
                   <div>
@@ -825,7 +830,7 @@ export default function OrderDetailPage({
                           Ship: ${Number(p.shipping).toFixed(2)}
                         </div>
                       )}
-                      {editingItem !== p.id && (
+                      {canEdit && editingItem !== p.id && (
                         <button
                           onClick={() => startEditItem(p)}
                           className="mt-1 inline-flex items-center gap-1 rounded border px-2 py-1 text-[10px] text-muted-foreground hover:bg-accent transition-colors"
@@ -837,7 +842,7 @@ export default function OrderDetailPage({
                   </div>
 
                   {/* ── Inline Edit Form ─────────────────────────── */}
-                  {editingItem === p.id && itemForms[p.id] && (
+                  {canEdit && editingItem === p.id && itemForms[p.id] && (
                     <div className="mt-3 border-t pt-3 grid grid-cols-2 gap-3">
                       {/* Status */}
                       <div>
@@ -1046,6 +1051,7 @@ export default function OrderDetailPage({
                     ) : (
                       <StatusBadge label="Unpaid" color="red" />
                     )}
+                    {canEdit && (
                     <button
                       onClick={handleIsPaidToggle}
                       disabled={isPaidToggling}
@@ -1065,6 +1071,7 @@ export default function OrderDetailPage({
                       )}
                       {order.is_paid ? "Unpay" : "Pay"}
                     </button>
+                    )}
                   </div>
                 }
               />
@@ -1147,6 +1154,7 @@ export default function OrderDetailPage({
             title={`Invoices (${invoices.length})`}
             icon={Receipt}
             actions={
+              canEdit ? (
               <div className="flex gap-1">
                 {!invoices.some((inv: any) => inv.type === "product") && (
                   <button
@@ -1171,6 +1179,7 @@ export default function OrderDetailPage({
                   </button>
                 )}
               </div>
+              ) : null
             }
           >
             {invoicesLoading ? (
@@ -1181,6 +1190,7 @@ export default function OrderDetailPage({
               <div className="text-center py-4">
                 <Receipt className="h-8 w-8 text-muted-foreground/30 mx-auto mb-2" />
                 <p className="text-sm text-muted-foreground italic">No invoices generated yet.</p>
+                {canEdit && (
                 <div className="flex gap-2 justify-center mt-3">
                   <button
                     onClick={() => handleGenerateInvoice("product")}
@@ -1199,6 +1209,7 @@ export default function OrderDetailPage({
                     Shipping Invoice
                   </button>
                 </div>
+                )}
               </div>
             ) : (
               <div className="space-y-3">
@@ -1238,7 +1249,7 @@ export default function OrderDetailPage({
                       >
                         <Eye className="h-3 w-3" /> View
                       </a>
-                      {inv.status === "generated" && (
+                      {canEdit && inv.status === "generated" && (
                         <button
                           onClick={() => handleInvoiceStatusChange(inv.id, "sent")}
                           disabled={invoiceUpdating === inv.id}
@@ -1248,7 +1259,7 @@ export default function OrderDetailPage({
                           Mark Sent
                         </button>
                       )}
-                      {inv.status !== "void" && (
+                      {canEdit && inv.status !== "void" && (
                         <button
                           onClick={() => handleInvoiceStatusChange(inv.id, "void")}
                           disabled={invoiceUpdating === inv.id}
@@ -1333,7 +1344,9 @@ export default function OrderDetailPage({
                 rows={4}
                 placeholder="Internal notes about this order…"
                 className="w-full rounded-lg border bg-background px-3 py-2 text-sm resize-none"
+                readOnly={!canEdit}
               />
+              {canEdit && (
               <button
                 onClick={handleNotesSave}
                 disabled={notesSaving}
@@ -1342,6 +1355,7 @@ export default function OrderDetailPage({
                 {notesSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
                 Save Notes
               </button>
+              )}
 
               {/* Client notes (read-only) */}
               {order.client_notes && (
@@ -1382,7 +1396,7 @@ export default function OrderDetailPage({
                 )}
               </div>
             </SectionCard>
-          ) : order.status === 4 ? (
+          ) : canEdit && order.status === 4 ? (
             <SectionCard title="Process Refund" icon={RotateCcw}>
               {refundOpen ? (
                 <div className="space-y-3">

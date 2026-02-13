@@ -56,10 +56,12 @@ function WorkflowModal({
   item,
   onClose,
   onSuccess,
+  userRole,
 }: {
   item: any;
   onClose: () => void;
   onSuccess: () => void;
+  userRole: string;
 }) {
   const [transitions, setTransitions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -145,6 +147,7 @@ function WorkflowModal({
           </p>
         ) : (
           <>
+            {(userRole === "buyer" || userRole === "super_admin") && (
             <div className="mb-4">
               <label className="mb-1 block text-sm font-medium">Tracking Number</label>
               <input
@@ -155,6 +158,7 @@ function WorkflowModal({
                 placeholder="Enter tracking number..."
               />
             </div>
+            )}
 
             <div className="mb-4">
               <label className="mb-1 block text-sm font-medium">Note (optional)</label>
@@ -208,6 +212,7 @@ export default function ItemListPage() {
   const [orderIdFilter, setOrderIdFilter] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [showBulkModal, setShowBulkModal] = useState(false);
+  const [userRole, setUserRole] = useState<string>("");
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
@@ -226,6 +231,7 @@ export default function ItemListPage() {
       setTotalPages(data.pagination?.totalPages || 1);
       setTotalCount(data.pagination?.totalCount || 0);
       setStatusSummary(data.statusSummary || []);
+      if (data.roleKey) setUserRole(data.roleKey);
     } catch {
       setItems([]);
     } finally {
@@ -429,7 +435,9 @@ export default function ItemListPage() {
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Qty</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Tracking</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Supplier</th>
+                {(userRole === "super_admin" || userRole === "buyer") && (
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Supplier</th>
+                )}
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Actions</th>
               </tr>
             </thead>
@@ -524,6 +532,7 @@ export default function ItemListPage() {
                   </td>
 
                   {/* Supplier */}
+                  {(userRole === "super_admin" || userRole === "buyer") && (
                   <td className="px-4 py-3">
                     {item.supplier_link ? (
                       <a
@@ -533,12 +542,13 @@ export default function ItemListPage() {
                         className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
                       >
                         <ExternalLink className="h-3 w-3" />
-                        Shop
+                        Product
                       </a>
                     ) : (
                       <span className="text-xs text-muted-foreground">—</span>
                     )}
                   </td>
+                  )}
 
                   {/* Actions */}
                   <td className="px-4 py-3">
@@ -592,6 +602,7 @@ export default function ItemListPage() {
             setSelectedItem(null);
             fetchItems();
           }}
+          userRole={userRole}
         />
       )}
 
@@ -605,6 +616,7 @@ export default function ItemListPage() {
             setSelectedIds(new Set());
             fetchItems();
           }}
+          userRole={userRole}
         />
       )}
     </div>
@@ -616,14 +628,17 @@ function BulkWorkflowModal({
   items,
   onClose,
   onSuccess,
+  userRole,
 }: {
   items: any[];
   onClose: () => void;
   onSuccess: () => void;
+  userRole: string;
 }) {
   const [transitions, setTransitions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
+  const [trackingNumber, setTrackingNumber] = useState("");
   const [error, setError] = useState("");
   const [result, setResult] = useState<any>(null);
 
@@ -694,6 +709,7 @@ function BulkWorkflowModal({
         body: JSON.stringify({
           item_ids: items.map((i) => i.id),
           to_status_key: toStatusKey,
+          tracking_number: trackingNumber || undefined,
         }),
       });
 
@@ -791,21 +807,36 @@ function BulkWorkflowModal({
             )}
           </p>
         ) : (
-          <div className="flex flex-col gap-2">
-            {transitions.map((t: any) => (
-              <button
-                key={t.toStatusKey}
-                onClick={() => handleBulkTransition(t.toStatusKey)}
-                disabled={updating}
-                className={`flex items-center justify-between rounded-md border px-3 py-2.5 text-sm font-medium transition-colors hover:bg-accent disabled:opacity-50 ${
-                  t.isTerminal ? "border-red-200 text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-400" : ""
-                }`}
-              >
-                <span>→ {t.toStatusLabel} ({items.length} items)</span>
-                {updating && <Loader2 className="h-4 w-4 animate-spin" />}
-              </button>
-            ))}
-          </div>
+          <>
+            {(userRole === "buyer" || userRole === "super_admin") && (
+            <div className="mb-4">
+              <label className="mb-1 block text-sm font-medium">Tracking Number (optional)</label>
+              <input
+                type="text"
+                value={trackingNumber}
+                onChange={(e) => setTrackingNumber(e.target.value)}
+                className="w-full rounded-md border px-3 py-2 text-sm"
+                placeholder="Apply one tracking number to all selected items..."
+              />
+            </div>
+            )}
+
+            <div className="flex flex-col gap-2">
+              {transitions.map((t: any) => (
+                <button
+                  key={t.toStatusKey}
+                  onClick={() => handleBulkTransition(t.toStatusKey)}
+                  disabled={updating}
+                  className={`flex items-center justify-between rounded-md border px-3 py-2.5 text-sm font-medium transition-colors hover:bg-accent disabled:opacity-50 ${
+                    t.isTerminal ? "border-red-200 text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-400" : ""
+                  }`}
+                >
+                  <span>→ {t.toStatusLabel} ({items.length} items)</span>
+                  {updating && <Loader2 className="h-4 w-4 animate-spin" />}
+                </button>
+              ))}
+            </div>
+          </>
         )}
       </div>
     </div>

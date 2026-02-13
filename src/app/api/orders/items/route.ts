@@ -54,56 +54,56 @@ export async function GET(req: NextRequest) {
     }
 
     // ── Build WHERE ─────────────────────────────────────────────
-    const where: any = {};
+    const where: any = { AND: [] };
 
     // Apply role-based visibility filter
     if (roleStatusIds) {
-      where.workflow_status_id = { in: roleStatusIds };
+      where.AND.push({ workflow_status_id: { in: roleStatusIds } });
     }
 
     if (search) {
       const num = Number(search);
       if (Number.isFinite(num) && num > 0) {
-        where.OR = [
-          { id: num },
-          { r_order_id: num },
-          { r_product_id: num },
-        ];
+        where.AND.push({
+          OR: [
+            { id: num },
+            { r_order_id: num },
+            { r_product_id: num },
+          ],
+        });
       } else {
-        where.OR = [
-          { product_name: { contains: search } },
-          { tracking_number: { contains: search } },
-        ];
+        where.AND.push({
+          OR: [
+            { product_name: { contains: search } },
+            { tracking_number: { contains: search } },
+          ],
+        });
       }
     }
 
     if (workflowStatus) {
-      // Look up status id from key
       const ws = await prisma.cms_order_item_statuses.findFirst({
         where: { status_key: workflowStatus },
       });
       if (ws) {
-        // If role-based filter is active, intersect with it
-        if (roleStatusIds) {
-          if (roleStatusIds.includes(ws.id)) {
-            where.workflow_status_id = ws.id;
-          }
-          // else keep the role filter (requested status not in their view)
-        } else {
-          where.workflow_status_id = ws.id;
+        if (!roleStatusIds || roleStatusIds.includes(ws.id)) {
+          where.AND.push({ workflow_status_id: ws.id });
         }
       }
     }
 
     if (trackingFilter === "has") {
-      where.tracking_number = { not: null };
+      where.AND.push({ tracking_number: { not: null } });
     } else if (trackingFilter === "missing") {
-      where.tracking_number = null;
+      where.AND.push({ tracking_number: null });
     }
 
     if (orderIdFilter) {
-      where.r_order_id = Number(orderIdFilter);
+      where.AND.push({ r_order_id: Number(orderIdFilter) });
     }
+
+    // Clean up empty AND
+    if (where.AND.length === 0) delete where.AND;
 
     // ── Sorting ─────────────────────────────────────────────────
     const validSorts: Record<string, any> = {
@@ -164,14 +164,14 @@ export async function GET(req: NextRequest) {
       productIds.length
         ? prisma.product_1688_info.findMany({
             where: { product_id: { in: productIds } },
-            select: { product_id: true, shop_url: true },
+            select: { product_id: true, product_url: true },
           })
         : [],
     ]);
 
     const orderMap = new Map(orders.map((o) => [o.id, o]));
     const statusMap = new Map(statusRows.map((s) => [s.id, s]));
-    const supplierMap = new Map(supplierInfo.map((s) => [s.product_id, s.shop_url]));
+    const supplierMap = new Map(supplierInfo.map((s) => [s.product_id, s.product_url]));
 
     const enriched = items.map((item) => {
       const order = orderMap.get(item.r_order_id);
@@ -226,6 +226,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       items: enriched,
+      roleKey: session.roleKey,
       pagination: {
         page,
         limit,

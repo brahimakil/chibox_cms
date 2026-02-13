@@ -136,15 +136,25 @@ interface SidebarProps {
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
   const [permissions, setPermissions] = useState<string[]>([]);
+  const [roleKey, setRoleKey] = useState<string>("super_admin");
 
   useEffect(() => {
     fetch("/api/auth/me")
       .then((r) => r.json())
       .then((d) => {
         if (d.user?.permissions) setPermissions(d.user.permissions);
+        if (d.user?.roleKey) setRoleKey(d.user.roleKey);
       })
       .catch(() => {});
   }, []);
+
+  const ROLE_PANEL_LABELS: Record<string, string> = {
+    super_admin: "Admin Panel",
+    buyer: "Buyer Panel",
+    china_warehouse: "China WH Panel",
+    lebanon_warehouse: "Lebanon WH Panel",
+  };
+  const panelLabel = ROLE_PANEL_LABELS[roleKey] || "Panel";
 
   // Filter navigation based on permissions
   const filteredNavigation = navigation
@@ -176,7 +186,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                   ChiHelo
                 </span>
                 <span className="text-[10px] font-medium text-muted-foreground">
-                  Admin Panel
+                  {panelLabel}
                 </span>
               </div>
             )}
