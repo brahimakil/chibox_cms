@@ -201,22 +201,15 @@ export async function GET(
     // ── Enrich tracking with status labels ─────────────────────────
     // Legacy tracking entries use old integer status codes (e.g. 9=Pending, 1=Confirmed).
     // New workflow entries use status_order values (1-7 for normal, 90=cancelled, 91=refunded).
-    // Since old codes 1-7 overlap with workflow status_order 1-7, we use this strategy:
+    // Strategy:
     //   - Values >= 90: definitely new workflow → match by status_order
     //   - Values 8, 9, 10: only exist in legacy → use legacy map
-    //   - Values 1-7: ambiguous overlap → use legacy map (safe for old data;
-    //     new entries created going forward should use 90/91 for terminal states)
+    //   - Values 1-7: prefer new workflow labels (Processing, Ordered, Shipped to WH, etc.)
+    //     since all new tracking entries use these values now
     const LEGACY_STATUS_LABELS: Record<number, { label: string; color: string }> = {
-      9: { label: "Pending", color: "yellow" },
-      1: { label: "Confirmed", color: "blue" },
-      2: { label: "Processing", color: "indigo" },
-      10: { label: "Processed", color: "cyan" },
-      3: { label: "Shipping", color: "purple" },
-      4: { label: "Delivered", color: "green" },
-      5: { label: "Cancelled", color: "red" },
-      6: { label: "Refunded", color: "orange" },
-      7: { label: "Failed", color: "red" },
       8: { label: "On Hold", color: "gray" },
+      9: { label: "Pending", color: "yellow" },
+      10: { label: "Processed", color: "cyan" },
     };
 
     const enrichedTracking = orderTracking.map((t) => {
@@ -234,13 +227,23 @@ export async function GET(
         }
       }
 
-      // For values 1-10: use legacy map (handles old PHP entries correctly)
-      const legacy = LEGACY_STATUS_LABELS[statusId];
-      if (legacy) {
+      // Values 8-10: legacy-only codes
+      if (statusId >= 8) {
+        const legacy = LEGACY_STATUS_LABELS[statusId];
         return {
           ...t,
-          status_label: legacy.label,
-          status_color: legacy.color,
+          status_label: legacy?.label || `Status ${statusId}`,
+          status_color: legacy?.color || "gray",
+        };
+      }
+
+      // Values 1-7: use workflow table labels
+      const ws = allWorkflowStatuses.find((s) => s.status_order === statusId);
+      if (ws) {
+        return {
+          ...t,
+          status_label: ws.status_label,
+          status_color: STATUS_COLORS[ws.status_key] || "gray",
         };
       }
 

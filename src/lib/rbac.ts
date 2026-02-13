@@ -207,6 +207,15 @@ export async function deriveOrderStatusFromItems(orderId: number) {
       where: { id: orderId },
       data: { workflow_status_id: lowestWs.id, updated_at: new Date() },
     });
+
+    // Create order_tracking entry so the timeline reflects the current state
+    await prisma.order_tracking.create({
+      data: {
+        r_order_id: orderId,
+        r_status_id: lowestWs.status_order,
+        track_date: new Date(),
+      },
+    });
   }
 
   return null; // no legacy status change needed
