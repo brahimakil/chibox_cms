@@ -131,7 +131,6 @@ export default function OrderDetailPage({
     shipping_amount: "",
   });
   const [shippingEstimates, setShippingEstimates] = useState<{ air: number; sea: number; selected_method: string } | null>(null);
-  const [estimatesLoading, setEstimatesLoading] = useState(false);
   const [shippingStatusChanging, setShippingStatusChanging] = useState(false);
   const [isPaidToggling, setIsPaidToggling] = useState(false);
 
@@ -159,8 +158,7 @@ export default function OrderDetailPage({
   const startEditItem = (p: any) => {
     setEditingItem(p.id);
     const method = p.shipping_method || "air";
-    const calcCost = method === "air" ? p.shipping_air : p.shipping_sea;
-    const shippingValue = (p.shipping && Number(p.shipping) > 0) ? p.shipping : (calcCost ?? 0);
+    const shippingValue = method === "sea" ? (p.by_sea ?? 0) : (p.by_air ?? 0);
     setItemForms((prev) => ({
       ...prev,
       [p.id]: {
@@ -246,34 +244,39 @@ export default function OrderDetailPage({
     }
   }, [id]);
 
+  // ── Handle status change — now managed per-item in Items page ──
+  // Order-level status is derived from items' workflow statuses
+
+  // ── Derive shipping estimates from per-product by_air/by_sea data ──
+  const deriveShippingEstimates = useCallback(() => {
+    const ord = data?.order;
+    if (!ord) return;
+    const prods = data?.products || [];
+    const totalAir = prods.reduce((sum: number, p: any) => sum + (Number(p.by_air) || 0), 0);
+    const totalSea = prods.reduce((sum: number, p: any) => sum + (Number(p.by_sea) || 0), 0);
+    setShippingEstimates({
+      air: totalAir,
+      sea: totalSea,
+      selected_method: ord.shipping_method || "air",
+    });
+  }, [data]);
+
   useEffect(() => {
     fetchOrder();
     fetchInvoices();
   }, [fetchOrder, fetchInvoices]);
 
-  // ── Handle status change — now managed per-item in Items page ──
-  // Order-level status is derived from items' workflow statuses
-
-  // ── Fetch shipping estimates for both methods ──────────────────────
-  const fetchShippingEstimates = async () => {
-    setEstimatesLoading(true);
-    try {
-      const res = await fetch(`/api/orders/${id}/shipping-estimate`);
-      if (res.ok) {
-        const json = await res.json();
-        setShippingEstimates(json);
-      }
-    } catch {
-      // Non-fatal — estimates are optional
-    } finally {
-      setEstimatesLoading(false);
+  // Auto-derive shipping estimates when order data loads
+  useEffect(() => {
+    if (data?.order) {
+      deriveShippingEstimates();
     }
-  };
+  }, [data, deriveShippingEstimates]);
 
   // ── Handle entering shipping edit mode ──────────────────────────────
   const startShippingEdit = () => {
     setShippingEditing(true);
-    fetchShippingEstimates();
+    deriveShippingEstimates();
   };
 
   // ── Handle method change — auto-populate with calculated estimate ──
@@ -659,9 +662,7 @@ export default function OrderDetailPage({
                             <div className="flex w-full items-center justify-between">
                               <span className="text-sm font-medium">{icon} {label}</span>
                               <span className="text-sm font-mono font-semibold">
-                                {estimatesLoading ? (
-                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                ) : estimate !== undefined && estimate > 0 ? (
+                                {estimate !== undefined && estimate > 0 ? (
                                   `$${estimate.toFixed(2)}`
                                 ) : (
                                   "—"
@@ -714,17 +715,40 @@ export default function OrderDetailPage({
                   </div>
                 </div>
               ) : (
-                <div className="space-y-1">
-                  <InfoRow
-                    label="Method"
-                    value={
-                      order.shipping_method
-                        ? order.shipping_method === "both"
-                          ? "✈️🚢 Both (Air & Sea)"
-                          : `${order.shipping_method === "air" ? "✈️" : "🚢"} ${order.shipping_method.charAt(0).toUpperCase() + order.shipping_method.slice(1)}`
-                        : "—"
-                    }
-                  />
+                <div className="space-y-3">
+                  {/* Visual air / sea method cards (read-only) */}
+                  <div>
+                    <span className="mb-1 block text-xs text-muted-foreground">Method</span>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {(["air", "sea"] as const).map((m) => {
+                        const isActive = order.shipping_method === m || order.shipping_method === "both";
+                        const icon = m === "air" ? "✈️" : "🚢";
+                        const label = m === "air" ? "Air" : "Sea";
+                        const estimate = shippingEstimates?.[m];
+                        const isUserMethod = shippingEstimates?.selected_method === m;
+                        return (
+                          <div
+                            key={m}
+                            className={`flex flex-col rounded-lg border-2 px-3 py-2.5 transition-colors ${
+                              isActive
+                                ? "border-primary bg-primary/5"
+                                : "border-muted"
+                            }`}
+                          >
+                            <div className="flex w-full items-center justify-between">
+                              <span className="text-sm font-medium">{icon} {label}</span>
+                              <span className="text-sm font-mono font-semibold">
+                                {estimate !== undefined ? `$${estimate.toFixed(2)}` : "—"}
+                              </span>
+                            </div>
+                            <span className={`mt-1 text-[10px] ${isActive ? "text-primary font-medium" : "text-muted-foreground"}`}>
+                              {isActive ? (isUserMethod ? "✓ User selected" : "✓ Selected") : ""}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                   <InfoRow label="Shipping Amount" value={`$${Number(order.shipping_amount).toFixed(2)}`} mono />
                 </div>
               )}
@@ -825,11 +849,31 @@ export default function OrderDetailPage({
                       <div className="text-xs font-bold text-primary">
                         Qty: {p.quantity}
                       </div>
-                      {(p.shipping ?? 0) > 0 && (
-                        <div className="text-xs font-semibold text-green-600 dark:text-green-400">
-                          Ship: ${Number(p.shipping).toFixed(2)}
+                      {/* Air & Sea shipping costs */}
+                      {((p.by_air ?? 0) > 0 || (p.by_sea ?? 0) > 0) ? (
+                        <div className="flex flex-col gap-0.5 mt-0.5">
+                          {(p.by_air ?? 0) > 0 && (
+                            <div className={`text-[10px] font-semibold rounded px-1.5 py-0.5 flex items-center gap-1 ${
+                              p.shipping_method === "air"
+                                ? "bg-primary/10 text-primary ring-1 ring-primary/30"
+                                : "text-muted-foreground"
+                            }`}>
+                              ✈️ ${Number(p.by_air).toFixed(2)}
+                              {p.shipping_method === "air" && <span className="text-[8px]">✓</span>}
+                            </div>
+                          )}
+                          {(p.by_sea ?? 0) > 0 && (
+                            <div className={`text-[10px] font-semibold rounded px-1.5 py-0.5 flex items-center gap-1 ${
+                              p.shipping_method === "sea"
+                                ? "bg-primary/10 text-primary ring-1 ring-primary/30"
+                                : "text-muted-foreground"
+                            }`}>
+                              🚢 ${Number(p.by_sea).toFixed(2)}
+                              {p.shipping_method === "sea" && <span className="text-[8px]">✓</span>}
+                            </div>
+                          )}
                         </div>
-                      )}
+                      ) : null}
                       {canEdit && editingItem !== p.id && (
                         <button
                           onClick={() => startEditItem(p)}
@@ -873,7 +917,7 @@ export default function OrderDetailPage({
                             const isSelected = itemForms[p.id].shipping_method === m;
                             const icon = m === "air" ? "✈️" : "🚢";
                             const label = m === "air" ? "Air" : "Sea";
-                            const cost = m === "air" ? p.shipping_air : p.shipping_sea;
+                            const cost = m === "air" ? p.by_air : p.by_sea;
                             return (
                               <button
                                 key={m}

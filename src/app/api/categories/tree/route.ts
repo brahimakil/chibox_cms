@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
 /**
- * In-memory cache for the tree endpoint.
+ * In-memory cache for the FULL tree endpoint.
  * The remote DB has ~2-3s latency per simple query and ~20-30s for the full
  * tree (9,700+ rows). We cache the formatted result with a 5-minute TTL
  * and expose an invalidation hook for the reorder endpoint.
@@ -22,24 +22,43 @@ export function invalidateTreeCache() {
 
 /**
  * GET /api/categories/tree
- * Returns ALL categories with only the fields the tree + filter dropdown need.
- * Uses server-side in-memory cache to avoid the ~20-30s remote-DB round-trip.
+ *
+ * Modes:
+ *   ?mode=all         Full tree (cached 5min) — for "Expand All" / search
+ *   ?parent=<id>      Direct children of a specific parent
+ *   (no params)       Root categories only (parent IS NULL or = 0, level = 0)
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const now = Date.now();
+    const sp = req.nextUrl.searchParams;
+    const mode = sp.get("mode");
+    const parentParam = sp.get("parent");
 
-    // Return cached data if fresh
-    if (cachedResult && now - cacheTimestamp < CACHE_TTL_MS) {
-      return NextResponse.json(cachedResult);
+    // ── Full tree (cached) ───────────────────────────────────────
+    if (mode === "all") {
+      const now = Date.now();
+      if (cachedResult && now - cacheTimestamp < CACHE_TTL_MS) {
+        return NextResponse.json(cachedResult);
+      }
+      buildingPromise ??= buildTreeData().finally(() => {
+        buildingPromise = null;
+      });
+      const result = await buildingPromise;
+      return NextResponse.json(result);
     }
 
-    // Deduplicate concurrent requests — only one build at a time
-    buildingPromise ??= buildTreeData().finally(() => {
-      buildingPromise = null;
-    });
-    const result = await buildingPromise;
+    // ── Children of a specific parent ────────────────────────────
+    if (parentParam !== null) {
+      const parentId = Number(parentParam);
+      if (Number.isNaN(parentId)) {
+        return NextResponse.json({ error: "Invalid parent ID" }, { status: 400 });
+      }
+      const result = await fetchChildrenOf(parentId);
+      return NextResponse.json(result);
+    }
 
+    // ── Default: roots only ──────────────────────────────────────
+    const result = await fetchRoots();
     return NextResponse.json(result);
   } catch (error) {
     console.error("Error fetching category tree:", error);
@@ -114,4 +133,74 @@ async function buildTreeData() {
   cacheTimestamp = Date.now();
 
   return result;
+}
+
+/** Fetch only root categories (parent IS NULL or 0, level 0). */
+async function fetchRoots() {
+  const [rows, excludedRows] = await Promise.all([
+    prisma.$queryRawUnsafe(`
+      SELECT id, category_name, category_name_en, parent, level,
+             has_children, main_image, product_count, display, order_number
+      FROM category
+      WHERE (parent IS NULL OR parent = 0)
+      ORDER BY order_number ASC
+    `) as Promise<any[]>,
+    prisma.$queryRawUnsafe(
+      `SELECT category_id FROM excluded_categories`
+    ) as Promise<any[]>,
+  ]);
+
+  const excludedIds = new Set(excludedRows.map((e: any) => Number(e.category_id)));
+
+  const categories = rows.map((c: any) => ({
+    id: Number(c.id),
+    category_name: c.category_name,
+    category_name_en: c.category_name_en || null,
+    parent: null,
+    level: 0,
+    has_children: c.has_children == null ? null : Boolean(c.has_children),
+    main_image: c.main_image || null,
+    product_count: Number(c.product_count ?? 0),
+    display: Boolean(c.display),
+    order_number: c.order_number == null ? null : Number(c.order_number),
+    is_excluded: excludedIds.has(Number(c.id)),
+  }));
+
+  return { categories, total: categories.length };
+}
+
+/** Fetch direct children of a specific parent category. */
+async function fetchChildrenOf(parentId: number) {
+  const [rows, excludedRows] = await Promise.all([
+    prisma.$queryRawUnsafe(`
+      SELECT id, category_name, category_name_en, parent, level,
+             has_children, main_image, product_count, display, order_number
+      FROM category
+      WHERE parent = ?
+      ORDER BY order_number ASC
+    `, parentId) as Promise<any[]>,
+    prisma.$queryRawUnsafe(
+      `SELECT category_id FROM excluded_categories WHERE category_id IN (
+        SELECT id FROM category WHERE parent = ?
+      )`, parentId
+    ) as Promise<any[]>,
+  ]);
+
+  const excludedIds = new Set(excludedRows.map((e: any) => Number(e.category_id)));
+
+  const categories = rows.map((c: any) => ({
+    id: Number(c.id),
+    category_name: c.category_name,
+    category_name_en: c.category_name_en || null,
+    parent: Number(c.parent),
+    level: c.level == null ? null : Number(c.level),
+    has_children: c.has_children == null ? null : Boolean(c.has_children),
+    main_image: c.main_image || null,
+    product_count: Number(c.product_count ?? 0),
+    display: Boolean(c.display),
+    order_number: c.order_number == null ? null : Number(c.order_number),
+    is_excluded: excludedIds.has(Number(c.id)),
+  }));
+
+  return { categories, parent_id: parentId };
 }

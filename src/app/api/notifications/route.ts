@@ -164,7 +164,7 @@ export async function POST(req: NextRequest) {
     /* If broadcast → create users_notifications for all active users */
     if (!r_user_id) {
       const activeUsers = await prisma.users.findMany({
-        where: { is_active: 1 },
+        where: { is_active: true },
         select: { id: true },
       });
 

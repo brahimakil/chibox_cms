@@ -77,7 +77,13 @@ export async function PUT(
       if (Number.isNaN(shippingCost) || shippingCost < 0) {
         return NextResponse.json({ error: "Invalid shipping cost" }, { status: 400 });
       }
-      updateData.shipping = shippingCost;
+      // Determine which column to write based on the item's shipping method
+      const effectiveMethod = shipping_method || item.shipping_method || "air";
+      if (effectiveMethod === "sea") {
+        updateData.by_sea = shippingCost;
+      } else {
+        updateData.by_air = shippingCost;
+      }
       updatedFields.push("shipping");
     }
 
@@ -151,9 +157,12 @@ export async function PUT(
     if (updatedFields.includes("shipping") || updatedFields.includes("quantity")) {
       const allItems = await prisma.order_products.findMany({
         where: { r_order_id: orderId },
-        select: { shipping: true },
+        select: { by_air: true, by_sea: true, shipping_method: true },
       });
-      const totalShipping = allItems.reduce((sum, i) => sum + (i.shipping ?? 0), 0);
+      const totalShipping = allItems.reduce((sum, i) => {
+        const cost = i.shipping_method === "sea" ? (i.by_sea ?? 0) : (i.by_air ?? 0);
+        return sum + cost;
+      }, 0);
       const currentOrder = await prisma.orders.findUnique({ where: { id: orderId } });
       if (currentOrder) {
         const newTotal =
@@ -214,7 +223,8 @@ export async function PUT(
         workflow_status_label: workflowLabel,
         tracking_number: updatedItem.tracking_number,
         shipping_method: updatedItem.shipping_method,
-        shipping: updatedItem.shipping,
+        by_air: updatedItem.by_air,
+        by_sea: updatedItem.by_sea,
         quantity: updatedItem.quantity,
       },
       updated_fields: updatedFields,

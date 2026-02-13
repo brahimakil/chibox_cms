@@ -168,7 +168,7 @@ export async function PUT(
         order_id: updatedItem.r_order_id,
         workflow_status_key: newStatus?.status_key,
         workflow_status_label: newStatus?.status_label,
-        is_terminal: newStatus?.is_terminal === 1,
+        is_terminal: newStatus?.is_terminal === true,
         tracking_number: updatedItem.tracking_number,
       },
       order_status_changed: orderStatusUpdate !== null,

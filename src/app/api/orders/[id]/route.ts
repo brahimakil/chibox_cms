@@ -119,77 +119,28 @@ export async function GET(
       storeInfos.map((si) => [si.product_id, si])
     );
 
-    // ── Calculate per-item shipping for BOTH air and sea via backend ──
-    const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://cms2.devback.website";
-    const shippingMethod = order.shipping_method || "air";
-    let airShippingMap = new Map<number, number>();
-    let seaShippingMap = new Map<number, number>();
-
-    try {
-      const shippingItems = orderProducts.map((op) => ({
-        product_id: op.r_product_id,
-        quantity: op.quantity,
-      }));
-      // Fetch air and sea costs in parallel
-      const [airRes, seaRes] = await Promise.all([
-        fetch(`${BACKEND_URL}/v3_0_0-shipping/calculate`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ items: shippingItems, method: "air" }),
-        }),
-        fetch(`${BACKEND_URL}/v3_0_0-shipping/calculate`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ items: shippingItems, method: "sea" }),
-        }),
-      ]);
-      if (airRes.ok) {
-        const airData = await airRes.json();
-        for (const ci of (airData?.data?.items || [])) {
-          airShippingMap.set(ci.product_id, ci.total_cost ?? 0);
-        }
-      }
-      if (seaRes.ok) {
-        const seaData = await seaRes.json();
-        for (const ci of (seaData?.data?.items || [])) {
-          seaShippingMap.set(ci.product_id, ci.total_cost ?? 0);
-        }
-      }
-    } catch (err) {
-      console.warn("Backend shipping calculate for per-item costs failed (non-fatal):", err);
-    }
-
     // ── Fetch workflow statuses for items ─────────────────────────
     const allWorkflowStatuses = await prisma.cms_order_item_statuses.findMany({
-      where: { is_active: 1 },
+      where: { is_active: true },
     });
     const workflowStatusMap = new Map(allWorkflowStatuses.map((s) => [s.id, s]));
 
     // ── Enrich order products ──────────────────────────────────────
     const enrichedProducts = orderProducts.map((op) => {
-      const storedShipping = op.shipping ? Number(op.shipping) : 0;
-      const methodMap = shippingMethod === "sea" ? seaShippingMap : airShippingMap;
-      const calcShipping = methodMap.get(op.r_product_id) ?? 0;
-      const effectiveShipping = storedShipping > 0 ? storedShipping : calcShipping;
-
       const ws = op.workflow_status_id ? workflowStatusMap.get(op.workflow_status_id) : null;
       const statusKey = ws?.status_key || "processing";
       const statusLabel = ws?.status_label || "Processing";
 
       return {
         ...op,
-        weight_kg: op.weight_kg ? Number(op.weight_kg) : null,
-        length_m: op.length_m ? Number(op.length_m) : null,
-        width_m: op.width_m ? Number(op.width_m) : null,
-        height_m: op.height_m ? Number(op.height_m) : null,
         tax_amount: op.tax_amount ? Number(op.tax_amount) : 0,
-        shipping: effectiveShipping,
-        shipping_air: airShippingMap.get(op.r_product_id) ?? 0,
-        shipping_sea: seaShippingMap.get(op.r_product_id) ?? 0,
+        by_air: op.by_air ? Number(op.by_air) : null,
+        by_sea: op.by_sea ? Number(op.by_sea) : null,
+        shipping_method: op.shipping_method || null,
         workflow_status_key: statusKey,
         workflow_status_label: statusLabel,
         workflow_status_id: op.workflow_status_id,
-        is_terminal: ws?.is_terminal === 1,
+        is_terminal: ws?.is_terminal === true,
         status_label: statusLabel,
         status_color: STATUS_COLORS[statusKey] || "gray",
         tracking_number: op.tracking_number || null,
@@ -272,7 +223,7 @@ export async function GET(
         const ws = p.workflow_status_id ? workflowStatusMap.get(p.workflow_status_id) : null;
         if (!ws || ws.is_terminal !== 1) allTerminal = false;
         const so = ws?.status_order ?? 1;
-        if (ws?.is_terminal === 1) continue;
+        if (ws?.is_terminal === true) continue;
         if (so < lowestOrder) {
           lowestOrder = so;
           orderStatusKey = ws?.status_key || "processing";

@@ -61,7 +61,7 @@ export async function PUT(req: NextRequest) {
 
     // ── Fetch target status ────────────────────────────────────
     const targetStatus = await prisma.cms_order_item_statuses.findFirst({
-      where: { status_key: to_status_key, is_active: 1 },
+      where: { status_key: to_status_key, is_active: true },
     });
     if (!targetStatus) {
       return NextResponse.json({ error: `Unknown status: ${to_status_key}` }, { status: 400 });

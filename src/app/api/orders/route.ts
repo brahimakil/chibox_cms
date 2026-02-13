@@ -165,7 +165,7 @@ export async function GET(req: NextRequest) {
 
     // Fetch all workflow statuses for lookup
     const allStatuses = await prisma.cms_order_item_statuses.findMany({
-      where: { is_active: 1 },
+      where: { is_active: true },
     });
     const statusMap = new Map(allStatuses.map((s) => [s.id, s]));
 
@@ -206,7 +206,7 @@ export async function GET(req: NextRequest) {
           }
           continue;
         }
-        if (ws.is_terminal === 1) continue; // Skip terminal items for order-level
+        if (ws.is_terminal === true) continue; // Skip terminal items for order-level
         if (ws.status_order < lowestOrder) {
           lowestOrder = ws.status_order;
           lowestStatus = { key: ws.status_key, label: ws.status_label };
@@ -281,7 +281,7 @@ export async function GET(req: NextRequest) {
         status_key: ws?.status_key || "unset",
         status_label: ws?.status_label || "Unset",
         status_order: ws?.status_order ?? 999,
-        is_terminal: ws?.is_terminal === 1,
+        is_terminal: ws?.is_terminal === true,
         count: wc._count.id,
         color: STATUS_COLORS[ws?.status_key || ""] || "gray",
       };

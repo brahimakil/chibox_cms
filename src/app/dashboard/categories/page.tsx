@@ -137,12 +137,12 @@ export default function CategoriesPage() {
     try {
       setTreeLoading(true);
 
-      // Lightweight endpoint — only 10 fields per category
+      // Only fetch roots initially — children load lazily on expand
       const res = await fetch("/api/categories/tree");
       const data = await res.json();
       const cats = data.categories || [];
 
-      // Use for dropdown (just need id/name/parent/level)
+      // Use roots for dropdown initially (will grow as children are loaded)
       setDropdownCategories(cats);
 
       // Use same data for tree
@@ -213,6 +213,39 @@ export default function CategoriesPage() {
       await fetchAllCategories();
     }
   };
+
+  /** Lazy-load children of a specific parent — called by CategoryTree on expand */
+  const handleLoadChildren = useCallback(async (parentId: number) => {
+    const res = await fetch(`/api/categories/tree?parent=${parentId}`);
+    const data = await res.json();
+    const children = data.categories || [];
+
+    // Merge children into tree state + dropdown
+    setTreeCategories((prev) => {
+      const existingIds = new Set(prev.map((c) => c.id));
+      const newOnes = children.filter((c: TreeCategoryData) => !existingIds.has(c.id));
+      return [...prev, ...newOnes];
+    });
+    setDropdownCategories((prev) => {
+      const existingIds = new Set(prev.map((c) => c.id));
+      const newOnes = children.filter((c: TreeCategoryData) => !existingIds.has(c.id));
+      return [...prev, ...newOnes];
+    });
+
+    return children;
+  }, []);
+
+  /** Load full tree — used by "Expand All" and search */
+  const handleLoadAll = useCallback(async () => {
+    const res = await fetch("/api/categories/tree?mode=all");
+    const data = await res.json();
+    const cats = data.categories || [];
+
+    setTreeCategories(cats);
+    setDropdownCategories(cats);
+
+    return cats;
+  }, []);
 
   return (
     <div className="space-y-4">
@@ -311,6 +344,8 @@ export default function CategoriesPage() {
             <CategoryTree
               categories={treeCategories}
               onReorder={handleReorder}
+              onLoadChildren={handleLoadChildren}
+              onLoadAll={handleLoadAll}
             />
           )}
         </>

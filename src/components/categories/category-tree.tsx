@@ -51,6 +51,8 @@ interface CategoryTreeProps {
     newParentId: number | null,
     newOrder: number
   ) => Promise<void>;
+  onLoadChildren: (parentId: number) => Promise<TreeCategory[]>;
+  onLoadAll: () => Promise<TreeCategory[]>;
 }
 
 /* ────────── Sortable Row ────────── */
@@ -60,12 +62,14 @@ function SortableTreeRow({
   depth,
   isExpanded,
   hasChildren,
+  isLoading,
   onToggle,
 }: {
   category: TreeCategory;
   depth: number;
   isExpanded: boolean;
   hasChildren: boolean;
+  isLoading: boolean;
   onToggle: () => void;
 }) {
   const {
@@ -107,8 +111,11 @@ function SortableTreeRow({
         <button
           onClick={onToggle}
           className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted"
+          disabled={isLoading}
         >
-          {isExpanded ? (
+          {isLoading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : isExpanded ? (
             <ChevronDown className="h-4 w-4" />
           ) : (
             <ChevronRight className="h-4 w-4" />
@@ -188,11 +195,15 @@ function DragOverlayContent({ category }: { category: TreeCategory }) {
 
 /* ────────── Main Tree ────────── */
 
-export function CategoryTree({ categories, onReorder }: CategoryTreeProps) {
+export function CategoryTree({ categories, onReorder, onLoadChildren, onLoadAll }: CategoryTreeProps) {
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+  const [loadingIds, setLoadingIds] = useState<Set<number>>(new Set());
+  const [loadedParents, setLoadedParents] = useState<Set<number>>(new Set());
   const [search, setSearch] = useState("");
   const [activeId, setActiveId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+  const [allLoaded, setAllLoaded] = useState(false);
+  const [loadingAll, setLoadingAll] = useState(false);
 
   // Local categories for optimistic updates — reset whenever server data arrives
   const [localCategories, setLocalCategories] =
@@ -269,14 +280,64 @@ export function CategoryTree({ categories, onReorder }: CategoryTreeProps) {
     return result;
   }, [localCategories, childrenMap, expandedIds, search]);
 
-  const toggleExpand = useCallback((id: number) => {
+  // Load full tree when search is initiated
+  const handleSearch = useCallback(async (value: string) => {
+    setSearch(value);
+    if (value && !allLoaded) {
+      setLoadingAll(true);
+      try {
+        const allCats = await onLoadAll();
+        setLocalCategories(allCats);
+        setAllLoaded(true);
+      } catch (err) {
+        console.error("Failed to load all categories for search:", err);
+      } finally {
+        setLoadingAll(false);
+      }
+    }
+  }, [allLoaded, onLoadAll]);
+
+  const toggleExpand = useCallback(async (id: number) => {
+    // If collapsing, just toggle
+    if (expandedIds.has(id)) {
+      setExpandedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      return;
+    }
+
+    // If children not yet loaded for this parent, fetch them
+    if (!loadedParents.has(id) && !allLoaded) {
+      setLoadingIds((prev) => new Set(prev).add(id));
+      try {
+        const children = await onLoadChildren(id);
+        // Merge into local categories (avoid duplicates)
+        setLocalCategories((prev) => {
+          const existingIds = new Set(prev.map((c) => c.id));
+          const newOnes = children.filter((c) => !existingIds.has(c.id));
+          return [...prev, ...newOnes];
+        });
+        setLoadedParents((prev) => new Set(prev).add(id));
+      } catch (err) {
+        console.error("Failed to load children for", id, err);
+      } finally {
+        setLoadingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      }
+    }
+
+    // Expand
     setExpandedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      next.add(id);
       return next;
     });
-  }, []);
+  }, [expandedIds, loadedParents, allLoaded, onLoadChildren]);
 
   const handleDragStart = (event: DragStartEvent) => {
     setActiveId(event.active.id as number);
@@ -352,13 +413,36 @@ export function CategoryTree({ categories, onReorder }: CategoryTreeProps) {
 
   const activeCategory = activeId ? categoriesById.get(activeId) : null;
 
-  const expandAll = () => {
+  const expandAll = async () => {
+    let catsToExpand = localCategories;
+    if (!allLoaded) {
+      setLoadingAll(true);
+      try {
+        const allCats = await onLoadAll();
+        setLocalCategories(allCats);
+        setAllLoaded(true);
+        catsToExpand = allCats;
+      } catch (err) {
+        console.error("Failed to load all categories:", err);
+        return;
+      } finally {
+        setLoadingAll(false);
+      }
+    }
+    // Build a fresh children map from the full dataset
+    const fullChildrenMap = new Map<number | null, TreeCategory[]>();
+    for (const c of catsToExpand) {
+      const parentKey = c.parent === 0 ? null : (c.parent ?? null);
+      const arr = fullChildrenMap.get(parentKey) || [];
+      arr.push(c);
+      fullChildrenMap.set(parentKey, arr);
+    }
     setExpandedIds(
       new Set(
-        localCategories
+        catsToExpand
           .filter(
             (c) =>
-              c.has_children || childrenMap.has(c.id)
+              c.has_children || fullChildrenMap.has(c.id)
           )
           .map((c) => c.id)
       )
@@ -376,7 +460,7 @@ export function CategoryTree({ categories, onReorder }: CategoryTreeProps) {
         <div className="w-64">
           <SearchInput
             defaultValue={search}
-            onSearch={setSearch}
+            onSearch={handleSearch}
             placeholder="Search tree..."
           />
         </div>
@@ -396,6 +480,12 @@ export function CategoryTree({ categories, onReorder }: CategoryTreeProps) {
           <div className="flex items-center gap-1 text-xs text-muted-foreground ml-auto">
             <Loader2 className="h-3 w-3 animate-spin" />
             Saving...
+          </div>
+        )}
+        {loadingAll && (
+          <div className="flex items-center gap-1 text-xs text-muted-foreground ml-auto">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Loading all categories...
           </div>
         )}
         <span className="ml-auto text-xs text-muted-foreground">
@@ -434,6 +524,7 @@ export function CategoryTree({ categories, onReorder }: CategoryTreeProps) {
                     !!item.category.has_children ||
                     (childrenMap.get(item.category.id)?.length ?? 0) > 0
                   }
+                  isLoading={loadingIds.has(item.category.id)}
                   onToggle={() => toggleExpand(item.category.id)}
                 />
               ))}

@@ -45,7 +45,7 @@ export async function PUT(
 
     // Find terminal statuses (cancelled, refunded) to exclude
     const terminalStatuses = await prisma.cms_order_item_statuses.findMany({
-      where: { is_terminal: 1 },
+      where: { is_terminal: true },
     });
     const terminalIds = terminalStatuses.map((s) => s.id);
 

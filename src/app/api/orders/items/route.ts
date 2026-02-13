@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
 
     if (visibleStatusKeys) {
       const visibleStatuses = await prisma.cms_order_item_statuses.findMany({
-        where: { status_key: { in: visibleStatusKeys }, is_active: 1 },
+        where: { status_key: { in: visibleStatusKeys }, is_active: true },
         select: { id: true },
       });
       roleStatusIds = visibleStatuses.map((s) => s.id);
@@ -137,7 +137,8 @@ export async function GET(req: NextRequest) {
           workflow_status_updated_by: true,
           provider_price: true,
           product_price: true,
-          shipping: true,
+          by_air: true,
+          by_sea: true,
         },
       }),
       prisma.order_products.count({ where }),
@@ -159,7 +160,7 @@ export async function GET(req: NextRequest) {
         },
       }),
       prisma.cms_order_item_statuses.findMany({
-        where: { is_active: 1 },
+        where: { is_active: true },
       }),
       productIds.length
         ? prisma.product_1688_info.findMany({
@@ -188,11 +189,12 @@ export async function GET(req: NextRequest) {
         shipping_method: item.shipping_method,
         provider_price: item.provider_price,
         product_price: item.product_price,
-        shipping: item.shipping,
+        by_air: item.by_air,
+        by_sea: item.by_sea,
         workflow_status_key: ws?.status_key || null,
         workflow_status_label: ws?.status_label || null,
         workflow_status_order: ws?.status_order || null,
-        is_terminal: ws?.is_terminal === 1,
+        is_terminal: ws?.is_terminal === true,
         order_status: order?.status,
         order_created_at: order?.created_at,
         customer_name: order
@@ -219,7 +221,7 @@ export async function GET(req: NextRequest) {
         status_key: ws?.status_key || "unset",
         status_label: ws?.status_label || "Unset",
         status_order: ws?.status_order ?? 999,
-        is_terminal: ws?.is_terminal === 1,
+        is_terminal: ws?.is_terminal === true,
         count: sc._count.id,
       };
     }).sort((a, b) => a.status_order - b.status_order);

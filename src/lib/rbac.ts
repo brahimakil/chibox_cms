@@ -84,7 +84,7 @@ export function hasAnyPermission(
  */
 export async function getAllowedTransitions(roleKey: string, currentStatusId: number) {
   const role = await prisma.cms_roles.findFirst({
-    where: { role_key: roleKey, is_active: 1 },
+    where: { role_key: roleKey, is_active: true },
   });
   if (!role) return [];
 
@@ -100,7 +100,7 @@ export async function getAllowedTransitions(roleKey: string, currentStatusId: nu
 
   const toStatusIds = transitions.map((t) => t.to_status_id);
   const statuses = await prisma.cms_order_item_statuses.findMany({
-    where: { id: { in: toStatusIds }, is_active: 1 },
+    where: { id: { in: toStatusIds }, is_active: true },
   });
 
   const statusMap = new Map(statuses.map((s) => [s.id, s]));
@@ -113,7 +113,7 @@ export async function getAllowedTransitions(roleKey: string, currentStatusId: nu
         toStatusId: s.id,
         toStatusKey: s.status_key,
         toStatusLabel: s.status_label,
-        isTerminal: s.is_terminal === 1,
+        isTerminal: s.is_terminal === true,
         requiresTracking: t.requires_tracking_number === 1,
       };
     });
@@ -148,7 +148,7 @@ export async function deriveOrderStatusFromItems(orderId: number) {
 
   const allTerminal = items.every((i) => {
     const s = i.workflow_status_id ? statusMap.get(i.workflow_status_id) : null;
-    return s && s.is_terminal === 1;
+    return s && s.is_terminal === true;
   });
 
   if (allTerminal) {
