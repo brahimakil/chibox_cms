@@ -47,6 +47,7 @@ export default function ProductsPage() {
   const [categoryId, setCategoryId] = useState("");
   const [stockFilter, setStockFilter] = useState("");
   const [excludedFilter, setExcludedFilter] = useState("");
+  const [languageFilter, setLanguageFilter] = useState("");
 
   // Categories dropdown + excluded IDs
   const [categories, setCategories] = useState<CategoryOption[]>([]);
@@ -88,6 +89,7 @@ export default function ProductsPage() {
         if (categoryId) params.set("categoryId", categoryId);
         if (stockFilter) params.set("stock", stockFilter);
         if (excludedFilter) params.set("excluded", excludedFilter);
+        if (languageFilter) params.set("language", languageFilter);
 
         const res = await fetch(`/api/products?${params}`);
         const data = await res.json();
@@ -121,7 +123,7 @@ export default function ProductsPage() {
         loadingRef.current = false;
       }
     },
-    [search, categoryId, stockFilter, excludedFilter, markupPercent, exchangeRate]
+    [search, categoryId, stockFilter, excludedFilter, languageFilter, markupPercent, exchangeRate]
   );
 
   // Load categories + excluded IDs once
@@ -142,7 +144,7 @@ export default function ProductsPage() {
     setHasMore(true);
     fetchProducts(null, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, categoryId, stockFilter, excludedFilter]);
+  }, [search, categoryId, stockFilter, excludedFilter, languageFilter]);
 
   // Load more callback (triggered by infinite scroll)
   const handleLoadMore = useCallback(() => {
@@ -253,6 +255,8 @@ export default function ProductsPage() {
         onStockFilterChange={setStockFilter}
         excludedFilter={excludedFilter}
         onExcludedFilterChange={setExcludedFilter}
+        languageFilter={languageFilter}
+        onLanguageFilterChange={setLanguageFilter}
         categories={categories}
         excludedCategoryIds={excludedCategoryIds}
       />

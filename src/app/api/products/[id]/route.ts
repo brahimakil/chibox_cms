@@ -10,16 +10,23 @@ function parseId(idStr: string): number | null {
   return Number.isNaN(id) ? null : id;
 }
 
+/** Translated data returned by the backend's on-the-fly translation */
+interface BackendTranslatedData {
+  product_props: any[] | null;  // Translated specs [{"Brand":"Nike"}, ...]
+  title_en: string | null;      // English title
+  display_name: string | null;  // English display name
+}
+
 /**
- * Trigger the backend's on-demand variant fetching for 1688-source products.
- * The backend's actionGetProductById calls refreshProductDetailsIfNeeded()
- * which populates product_options, product_variation, product_1688_info, etc.
- * We fire-and-await this so data is in the DB when we query via Prisma.
+ * Call the backend's get-product-by-id endpoint.
+ * This triggers on-demand variant fetching AND returns translated data
+ * (product_props keys/values translated from Chinese, title_en, etc.).
+ * The backend translates product_props on-the-fly (not saved to DB).
  */
-async function triggerBackendRefresh(productId: number): Promise<void> {
+async function fetchBackendProduct(productId: number): Promise<BackendTranslatedData | null> {
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000); // 30s timeout
+    const timeout = setTimeout(() => controller.abort(), 30000);
 
     const res = await fetch(
       `${BACKEND_URL}/v3_0_0-product/get-product-by-id?id=${productId}`,
@@ -32,13 +39,22 @@ async function triggerBackendRefresh(productId: number): Promise<void> {
     clearTimeout(timeout);
 
     if (!res.ok) {
-      console.warn(
-        `Backend refresh for product ${productId} returned ${res.status}`
-      );
+      console.warn(`Backend fetch for product ${productId} returned ${res.status}`);
+      return null;
     }
+
+    const body = await res.json();
+    const p = body?.data?.product;
+    if (!p) return null;
+
+    return {
+      product_props: p.product_props ?? null,
+      title_en: p.title_en ?? p.display_name ?? null,
+      display_name: p.display_name ?? null,
+    };
   } catch (err: any) {
-    // Don't fail the whole request if backend is unreachable
-    console.warn(`Backend refresh for product ${productId} failed:`, err.message);
+    console.warn(`Backend fetch for product ${productId} failed:`, err.message);
+    return null;
   }
 }
 
@@ -216,35 +232,27 @@ async function fetchProductDetail(id: number) {
 
   if (!productCheck) return null;
 
-  // If it's a 1688-source product, trigger the backend's on-demand fetching
-  // This populates product_options, product_variation, product_1688_info, etc.
-  if (productCheck.source === "1688" && productCheck.source_product_id) {
-    // Check if we already have variant data — skip refresh if we do
-    const existingVariants = await prisma.product_options.count({
-      where: { product_id: id },
-    });
-    const existingInfo = await prisma.product_1688_info.count({
-      where: { product_id: id },
-    });
+  // For 1688-source products, call the backend API which:
+  // 1. Triggers on-demand variant fetching if needed
+  // 2. Returns translated product_props and title (on-the-fly, not saved to DB)
+  // Run backend call in parallel with Prisma query for better performance.
+  // The backend call also populates variants on first visit, so we need
+  // its data before reading — BUT for already-fetched products (majority),
+  // running them in parallel saves ~1-2s.
+  const is1688 = productCheck.source === "1688" && !!productCheck.source_product_id;
 
-    if (existingVariants === 0 || existingInfo === 0) {
-      // No variant data yet — trigger backend on-demand fetch
-      console.log(
-        `Triggering backend refresh for 1688 product ${id} (source_product_id: ${productCheck.source_product_id})`
-      );
-      await triggerBackendRefresh(id);
-    }
-  }
-
-  const product = await prisma.product.findUnique({
-    where: { id },
-    include: {
-      product_1688_info: true,
-      product_variant: {
-        orderBy: { sort_order: "asc" },
+  const [backendData, product] = await Promise.all([
+    is1688 ? fetchBackendProduct(id) : Promise.resolve(null),
+    prisma.product.findUnique({
+      where: { id },
+      include: {
+        product_1688_info: true,
+        product_variant: {
+          orderBy: { sort_order: "asc" },
+        },
       },
-    },
-  });
+    }),
+  ]);
 
   if (!product) return null;
 
@@ -350,19 +358,32 @@ async function fetchProductDetail(id: number) {
       })),
   }));
 
-  // Serialize BigInts
-  const info1688 = product.product_1688_info.map((info: any) => ({
-    ...info,
-    id: info.id.toString(),
-    origin_price: info.origin_price ? Number(info.origin_price) : null,
-    origin_price_min: info.origin_price_min ? Number(info.origin_price_min) : null,
-    origin_price_max: info.origin_price_max ? Number(info.origin_price_max) : null,
-    previous_origin_price: info.previous_origin_price ? Number(info.previous_origin_price) : null,
-    discount_price: info.discount_price ? Number(info.discount_price) : null,
-    unit_weight: info.unit_weight ? Number(info.unit_weight) : null,
-    mix_amount: info.mix_amount ? Number(info.mix_amount) : null,
-    delivery_fee: info.delivery_fee ? Number(info.delivery_fee) : null,
-  }));
+  // Serialize BigInts and merge backend-translated product_props
+  const info1688 = product.product_1688_info.map((info: any) => {
+    const serialized = {
+      ...info,
+      id: info.id.toString(),
+      origin_price: info.origin_price ? Number(info.origin_price) : null,
+      origin_price_min: info.origin_price_min ? Number(info.origin_price_min) : null,
+      origin_price_max: info.origin_price_max ? Number(info.origin_price_max) : null,
+      previous_origin_price: info.previous_origin_price ? Number(info.previous_origin_price) : null,
+      discount_price: info.discount_price ? Number(info.discount_price) : null,
+      unit_weight: info.unit_weight ? Number(info.unit_weight) : null,
+      mix_amount: info.mix_amount ? Number(info.mix_amount) : null,
+      delivery_fee: info.delivery_fee ? Number(info.delivery_fee) : null,
+    };
+
+    // If the backend returned translated product_props, use those instead of raw Chinese
+    if (backendData?.product_props) {
+      serialized.product_props = JSON.stringify(backendData.product_props);
+    }
+    // If the backend returned an English title, store it for the frontend
+    if (backendData?.title_en && !serialized.title_en) {
+      serialized.title_en = backendData.title_en;
+    }
+
+    return serialized;
+  });
 
   const formattedVariants = product.product_variant.map((v: any) => ({
     ...v,
@@ -391,6 +412,10 @@ async function fetchProductDetail(id: number) {
         ? Number(product.shipping_confidence_score)
         : null,
       website_price: product.website_price ? Number(product.website_price) : null,
+      // If backend returned a translated display_name, include it
+      ...(backendData?.display_name && !product.display_name
+        ? { display_name: backendData.display_name }
+        : {}),
       product_1688_info: info1688,
       product_variant: formattedVariants,
     },

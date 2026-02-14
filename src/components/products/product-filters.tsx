@@ -13,6 +13,8 @@ interface ProductFiltersProps {
   onStockFilterChange: (value: string) => void;
   excludedFilter: string;
   onExcludedFilterChange: (value: string) => void;
+  languageFilter: string;
+  onLanguageFilterChange: (value: string) => void;
   categories: { id: number; category_name: string; category_name_en: string | null; parent: number | null; level: number | null }[];
   excludedCategoryIds: number[];
 }
@@ -26,6 +28,8 @@ export function ProductFilters({
   onStockFilterChange,
   excludedFilter,
   onExcludedFilterChange,
+  languageFilter,
+  onLanguageFilterChange,
   categories,
   excludedCategoryIds,
 }: ProductFiltersProps) {
@@ -97,6 +101,17 @@ export function ProductFilters({
         <option value="">All Stock</option>
         <option value="in_stock">In Stock</option>
         <option value="out_of_stock">Out of Stock</option>
+      </select>
+
+      {/* Language / Translation filter */}
+      <select
+        value={languageFilter}
+        onChange={(e) => onLanguageFilterChange(e.target.value)}
+        className="h-9 rounded-md border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+      >
+        <option value="">All Languages</option>
+        <option value="translated">Translated (English)</option>
+        <option value="not_translated">Not Translated (Chinese)</option>
       </select>
     </div>
   );

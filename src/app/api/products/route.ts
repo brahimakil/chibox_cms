@@ -52,6 +52,7 @@ export async function GET(request: NextRequest) {
     const categoryId = searchParams.get("categoryId");
     const stockFilter = searchParams.get("stock");
     const excluded = searchParams.get("excluded");
+    const language = searchParams.get("language");
 
     // ── Search strategy ──
     // product_code has BTREE index → equals/startsWith is ~100ms
@@ -137,6 +138,23 @@ export async function GET(request: NextRequest) {
       where.out_of_stock = 1;
     }
 
+    // Language / translation filter
+    // translated   = has display_name (English translation cached by backend)
+    // not_translated = display_name is null/empty (still Chinese only)
+    if (language === "translated") {
+      where.AND = [
+        ...(where.AND || []),
+        { display_name: { not: null } },
+        { display_name: { not: "" } },
+      ];
+    } else if (language === "not_translated") {
+      where.OR = [
+        ...(where.OR || []),
+        { display_name: null },
+        { display_name: "" },
+      ];
+    }
+
     // Merge category filter with excluded categories filter
     if (excluded === "excluded" || excluded === "not_excluded") {
       const excludedCategoryIds = await getExcludedCategoryIds();
@@ -181,7 +199,7 @@ export async function GET(request: NextRequest) {
 
     // ── Run independent queries in parallel ──
     const isFirstLoad = !cursor;
-    const isUnfilteredLoad = !search && !categoryId && !stockFilter && !excluded;
+    const isUnfilteredLoad = !search && !categoryId && !stockFilter && !excluded && !language;
 
     // Build count promise based on the request type
     const countPromise = buildCountPromise(

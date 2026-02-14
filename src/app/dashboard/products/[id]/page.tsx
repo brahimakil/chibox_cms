@@ -317,7 +317,21 @@ export default function ProductDetailPage({
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <InfoRow label="Product Code" value={product.product_code} />
               <InfoRow label="Display Name" value={product.display_name || "—"} />
-              <InfoRow label="Original Name" value={product.original_name || "—"} />
+              <InfoRow
+                label="Original Name"
+                value={
+                  product.product_1688_info?.[0]?.title_en ||
+                  product.display_name ||
+                  product.original_name ||
+                  "—"
+                }
+              />
+              {product.original_name && product.original_name !== product.display_name && (
+                <InfoRow
+                  label="Original Name (Chinese)"
+                  value={product.original_name}
+                />
+              )}
               <InfoRow label="Source" value={product.source || "manual"} />
               <InfoRow label="Model" value={product.model || "—"} />
               <InfoRow
