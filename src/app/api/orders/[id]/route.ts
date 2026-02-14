@@ -221,7 +221,7 @@ export async function GET(
       let allTerminal = true;
       for (const p of enrichedProducts) {
         const ws = p.workflow_status_id ? workflowStatusMap.get(p.workflow_status_id) : null;
-        if (!ws || ws.is_terminal !== 1) allTerminal = false;
+        if (!ws || ws.is_terminal !== true) allTerminal = false;
         const so = ws?.status_order ?? 1;
         if (ws?.is_terminal === true) continue;
         if (so < lowestOrder) {

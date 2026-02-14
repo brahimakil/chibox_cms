@@ -591,6 +591,7 @@ model ag_users {
   reset_code         String?          @db.VarChar(100)
   reset_code_date    DateTime?        @db.DateTime(0)
   has_related_store  Int?             @db.TinyInt
+  cms_user_roles     cms_user_roles[]
 }
 
 model ag_users_notification {
@@ -2565,6 +2566,7 @@ model cms_user_roles {
   created_at DateTime  @default(now()) @db.DateTime(0)
   updated_at DateTime  @default(now()) @db.DateTime(0)
   cms_roles  cms_roles @relation(fields: [role_id], references: [id], map: "fk_cms_user_roles_role")
+  ag_users   ag_users  @relation(fields: [user_id], references: [user_id], map: "fk_cms_user_roles_user")
 
   @@id([user_id, role_id])
   @@index([user_id], map: "idx_cms_user_roles_user")

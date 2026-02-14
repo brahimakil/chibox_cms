@@ -2,9 +2,44 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+const BACKEND_URL =
+  process.env.NEXT_PUBLIC_BACKEND_URL || "https://cms2.devback.website";
+
 function parseId(idStr: string): number | null {
   const id = Number.parseInt(idStr, 10);
   return Number.isNaN(id) ? null : id;
+}
+
+/**
+ * Trigger the backend's on-demand variant fetching for 1688-source products.
+ * The backend's actionGetProductById calls refreshProductDetailsIfNeeded()
+ * which populates product_options, product_variation, product_1688_info, etc.
+ * We fire-and-await this so data is in the DB when we query via Prisma.
+ */
+async function triggerBackendRefresh(productId: number): Promise<void> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000); // 30s timeout
+
+    const res = await fetch(
+      `${BACKEND_URL}/v3_0_0-product/get-product-by-id?id=${productId}`,
+      {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        signal: controller.signal,
+      }
+    );
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      console.warn(
+        `Backend refresh for product ${productId} returned ${res.status}`
+      );
+    }
+  } catch (err: any) {
+    // Don't fail the whole request if backend is unreachable
+    console.warn(`Backend refresh for product ${productId} failed:`, err.message);
+  }
 }
 
 /**
@@ -173,6 +208,34 @@ function round6(n: number) {
 }
 
 async function fetchProductDetail(id: number) {
+  // First, check if this is a 1688-source product that might need on-demand refresh
+  const productCheck = await prisma.product.findUnique({
+    where: { id },
+    select: { id: true, source: true, source_product_id: true },
+  });
+
+  if (!productCheck) return null;
+
+  // If it's a 1688-source product, trigger the backend's on-demand fetching
+  // This populates product_options, product_variation, product_1688_info, etc.
+  if (productCheck.source === "1688" && productCheck.source_product_id) {
+    // Check if we already have variant data — skip refresh if we do
+    const existingVariants = await prisma.product_options.count({
+      where: { product_id: id },
+    });
+    const existingInfo = await prisma.product_1688_info.count({
+      where: { product_id: id },
+    });
+
+    if (existingVariants === 0 || existingInfo === 0) {
+      // No variant data yet — trigger backend on-demand fetch
+      console.log(
+        `Triggering backend refresh for 1688 product ${id} (source_product_id: ${productCheck.source_product_id})`
+      );
+      await triggerBackendRefresh(id);
+    }
+  }
+
   const product = await prisma.product.findUnique({
     where: { id },
     include: {

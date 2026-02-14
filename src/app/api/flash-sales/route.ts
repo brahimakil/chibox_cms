@@ -9,7 +9,10 @@ export async function GET() {
   try {
     const [sales, productCounts] = await Promise.all([
       prisma.$queryRawUnsafe(`
-        SELECT * FROM flash_sales ORDER BY order_number ASC
+        SELECT id, title, slug, color_1, color_2, color_3, slider_type, 
+               end_time, display, r_store_id, discount, order_number,
+               created_at, updated_at
+        FROM flash_sales ORDER BY order_number ASC
       `) as Promise<any[]>,
       prisma.$queryRawUnsafe(`
         SELECT r_flash_id, COUNT(*) as cnt 
@@ -86,14 +89,16 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Add products if provided
+    // Add products if provided (parameterized to prevent SQL injection)
     if (body.product_ids?.length) {
-      const insertValues = body.product_ids.map(
-        (pid: number) => `(${sale.id}, ${pid})`
-      );
-      await prisma.$executeRawUnsafe(
-        `INSERT INTO flash_sales_products (r_flash_id, r_product_id) VALUES ${insertValues.join(",")}`
-      );
+      const values = body.product_ids.map((pid: number) => [sale.id, Number(pid)]);
+      for (const [flashId, productId] of values) {
+        await prisma.$executeRawUnsafe(
+          `INSERT INTO flash_sales_products (r_flash_id, r_product_id) VALUES (?, ?)`,
+          flashId,
+          productId
+        );
+      }
     }
 
     return NextResponse.json({ success: true, sale });

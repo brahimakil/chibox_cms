@@ -1,8 +1,18 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+// ── In-memory cache for categories (rarely change) ──
+let cachedResponse: { categories: any[]; excludedCategoryIds: number[] } | null = null;
+let cacheTimestamp = 0;
+const CACHE_TTL = 300_000; // 5 minutes
+
 export async function GET() {
   try {
+    // Return cached response if fresh
+    if (cachedResponse && Date.now() - cacheTimestamp < CACHE_TTL) {
+      return NextResponse.json(cachedResponse);
+    }
+
     const [categories, excludedRows] = await Promise.all([
       prisma.category.findMany({
         where: { display: true },
@@ -46,10 +56,16 @@ export async function GET() {
       }
     }
 
-    return NextResponse.json({
+    const result = {
       categories,
       excludedCategoryIds: [...excludedIds],
-    });
+    };
+
+    // Cache the result
+    cachedResponse = result;
+    cacheTimestamp = Date.now();
+
+    return NextResponse.json(result);
   } catch (error) {
     console.error("Error fetching categories:", error);
     return NextResponse.json(

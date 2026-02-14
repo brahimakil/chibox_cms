@@ -21,10 +21,12 @@ import {
   Save,
   Truck,
   ClipboardList,
+  RefreshCw,
 } from "lucide-react";
 import { ImageLightbox } from "@/components/products/image-lightbox";
 import { ProductStatusBadge, StockBadge } from "@/components/products/product-status-badge";
 import { VariantsTable } from "@/components/products/variants-table";
+import { VariationsTable } from "@/components/products/variations-table";
 import { OptionsDisplay } from "@/components/products/options-display";
 import { CategorySelect } from "@/components/products/category-select";
 import { DimensionsForm } from "@/components/products/dimensions-form";
@@ -92,6 +94,9 @@ export default function ProductDetailPage({
 
   // Delete dialog
   const [deleteOpen, setDeleteOpen] = useState(false);
+
+  // Refresh from 1688
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     fetchProduct();
@@ -161,6 +166,24 @@ export default function ProductDetailPage({
     }
   };
 
+  const handleRefreshFrom1688 = async () => {
+    setRefreshing(true);
+    try {
+      const res = await fetch(`/api/products/${id}/refresh`, { method: "POST" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Refresh failed (${res.status})`);
+      }
+      // Re-fetch product data to display new variants
+      await fetchProduct();
+    } catch (err: any) {
+      console.error("Refresh failed:", err);
+      alert(`Refresh failed: ${err.message}`);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-32">
@@ -185,7 +208,7 @@ export default function ProductDetailPage({
     );
   }
 
-  const { product, category, options, store, timesSold, pricing, shippingEstimation } =
+  const { product, category, options, variations, store, timesSold, pricing, shippingEstimation } =
     data;
   const { markupPercent, exchangeRate } = pricing;
 
@@ -221,13 +244,26 @@ export default function ProductDetailPage({
           </div>
         </div>
 
-        <button
-          onClick={() => setDeleteOpen(true)}
-          className="inline-flex items-center gap-2 rounded-md border border-destructive/30 px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10"
-        >
-          <Trash2 className="h-4 w-4" />
-          Delete
-        </button>
+        <div className="flex items-center gap-2">
+          {product.source === "1688" && (
+            <button
+              onClick={handleRefreshFrom1688}
+              disabled={refreshing}
+              className="inline-flex items-center gap-2 rounded-md border border-blue-300 px-3 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50 dark:border-blue-700 dark:text-blue-400 dark:hover:bg-blue-900/20 disabled:opacity-50"
+            >
+              <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+              {refreshing ? "Fetching…" : "Refresh from 1688"}
+            </button>
+          )}
+
+          <button
+            onClick={() => setDeleteOpen(true)}
+            className="inline-flex items-center gap-2 rounded-md border border-destructive/30 px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10"
+          >
+            <Trash2 className="h-4 w-4" />
+            Delete
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -353,11 +389,22 @@ export default function ProductDetailPage({
             </Section>
           )}
 
-          {/* Variants */}
+          {/* Variants (new table — product_variant) */}
           {product.product_variant && product.product_variant.length > 0 && (
             <Section icon={Layers} title={`Variants (${product.product_variant.length})`}>
               <VariantsTable
                 variants={product.product_variant}
+                exchangeRate={exchangeRate}
+                markupPercent={markupPercent}
+              />
+            </Section>
+          )}
+
+          {/* Variations (legacy table — product_variation) */}
+          {variations && variations.length > 0 && (
+            <Section icon={Layers} title={`Variations (${variations.length})`}>
+              <VariationsTable
+                variations={variations}
                 exchangeRate={exchangeRate}
                 markupPercent={markupPercent}
               />

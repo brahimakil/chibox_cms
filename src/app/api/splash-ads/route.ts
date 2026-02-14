@@ -8,7 +8,10 @@ import { prisma } from "@/lib/prisma";
 export async function GET() {
   try {
     const ads = (await prisma.$queryRawUnsafe(`
-      SELECT * FROM splash_ads ORDER BY id DESC
+      SELECT id, title, media_type, media_url, thumbnail_url, link_type, link_value,
+             skip_duration, total_duration, is_active, start_date, end_date,
+             view_count, click_count, skip_count, created_at, updated_at
+      FROM splash_ads ORDER BY id DESC
     `)) as any[];
 
     const formatted = ads.map((a: any) => ({

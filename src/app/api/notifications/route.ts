@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
     };
     const orderBy = { [allowedSort[sort] || "created_at"]: order };
 
-    const [notifications, total] = await Promise.all([
+    const [notifications, total, totalAll, totalBroadcast, totalOrder, totalPromo] = await Promise.all([
       prisma.notifications.findMany({
         where,
         orderBy,
@@ -49,43 +49,38 @@ export async function GET(req: NextRequest) {
         take: limit,
       }),
       prisma.notifications.count({ where }),
+      // Stats — run in parallel with main query instead of after
+      prisma.notifications.count(),
+      prisma.notifications.count({ where: { r_user_id: null } }),
+      prisma.notifications.count({ where: { notification_type: "order" } }),
+      prisma.notifications.count({ where: { notification_type: "promo" } }),
     ]);
 
-    /* ─ Fetch target user names for single-user notifications ─ */
+    /* ─ Fetch enrichment data in parallel ─ */
     const userIds = notifications
       .map((n) => n.r_user_id)
       .filter((id): id is number => id !== null);
 
-    const users =
-      userIds.length > 0
-        ? await prisma.users.findMany({
-            where: { id: { in: userIds } },
-            select: { id: true, first_name: true, last_name: true, email: true, main_image: true },
-          })
-        : [];
-    const userMap = new Map(users.map((u) => [u.id, u]));
-
-    /* ─ Get reach count for broadcast notifications ─ */
     const broadcastIds = notifications
       .filter((n) => n.r_user_id === null)
       .map((n) => n.id);
 
-    const reachCounts =
+    const [users, reachCounts, seenCounts] = await Promise.all([
+      userIds.length > 0
+        ? prisma.users.findMany({
+            where: { id: { in: userIds } },
+            select: { id: true, first_name: true, last_name: true, email: true, main_image: true },
+          })
+        : Promise.resolve([]),
       broadcastIds.length > 0
-        ? await prisma.users_notifications.groupBy({
+        ? prisma.users_notifications.groupBy({
             by: ["notification_id"],
             where: { notification_id: { in: broadcastIds } },
             _count: { id: true },
           })
-        : [];
-    const reachMap = new Map(
-      reachCounts.map((r) => [r.notification_id, r._count.id])
-    );
-
-    /* ─ Get seen counts for broadcasts ─ */
-    const seenCounts =
+        : Promise.resolve([]),
       broadcastIds.length > 0
-        ? await prisma.users_notifications.groupBy({
+        ? prisma.users_notifications.groupBy({
             by: ["notification_id"],
             where: {
               notification_id: { in: broadcastIds },
@@ -93,7 +88,13 @@ export async function GET(req: NextRequest) {
             },
             _count: { id: true },
           })
-        : [];
+        : Promise.resolve([]),
+    ]);
+
+    const userMap = new Map(users.map((u) => [u.id, u]));
+    const reachMap = new Map(
+      reachCounts.map((r) => [r.notification_id, r._count.id])
+    );
     const seenMap = new Map(
       seenCounts.map((r) => [r.notification_id, r._count.id])
     );
@@ -107,14 +108,6 @@ export async function GET(req: NextRequest) {
           ? seenMap.get(n.id) || 0
           : n.is_seen,
     }));
-
-    /* ─ Stats ─ */
-    const [totalAll, totalBroadcast, totalOrder, totalPromo] = await Promise.all([
-      prisma.notifications.count(),
-      prisma.notifications.count({ where: { r_user_id: null } }),
-      prisma.notifications.count({ where: { notification_type: "order" } }),
-      prisma.notifications.count({ where: { notification_type: "promo" } }),
-    ]);
 
     return NextResponse.json({
       notifications: enriched,
@@ -164,7 +157,7 @@ export async function POST(req: NextRequest) {
     /* If broadcast → create users_notifications for all active users */
     if (!r_user_id) {
       const activeUsers = await prisma.users.findMany({
-        where: { is_active: true },
+        where: { is_active: 1 },
         select: { id: true },
       });
 

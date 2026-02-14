@@ -3,13 +3,24 @@ import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
+/* ── In-memory cache for dashboard stats (60s TTL) ── */
+let cachedResponse: object | null = null;
+let cacheTimestamp = 0;
+const CACHE_TTL = 60_000; // 60 seconds
+
 export async function GET() {
   try {
-    const now = new Date();
-    const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
-    const yearStart = new Date(now.getFullYear(), 0, 1);
+    // Return cached data if still fresh
+    const now = Date.now();
+    if (cachedResponse && now - cacheTimestamp < CACHE_TTL) {
+      return NextResponse.json(cachedResponse);
+    }
+
+    const nowDate = new Date();
+    const thisMonthStart = new Date(nowDate.getFullYear(), nowDate.getMonth(), 1);
+    const lastMonthStart = new Date(nowDate.getFullYear(), nowDate.getMonth() - 1, 1);
+    const lastMonthEnd = new Date(nowDate.getFullYear(), nowDate.getMonth(), 0, 23, 59, 59);
+    const yearStart = new Date(nowDate.getFullYear(), 0, 1);
 
     // Run all queries in parallel
     const [
@@ -183,7 +194,7 @@ export async function GET() {
       };
     });
 
-    return NextResponse.json({
+    const responseData = {
       stats: {
         totalRevenue,
         thisMonthRevenue: thisMonthRev,
@@ -205,7 +216,8 @@ export async function GET() {
           value: s._count.id,
           status: s.status,
         })),
-        ordersByPaymentType: ordersByPaymentType.map((p) => ({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ordersByPaymentType: ordersByPaymentType.map((p: any) => ({
           name: paymentLabels[p.payment_type] || `Type ${p.payment_type}`,
           count: p._count.id,
           revenue: p._sum.total || 0,
@@ -241,8 +253,14 @@ export async function GET() {
         image: p.main_image,
         price: p.sale_price || p.product_price,
         orders: Number(p.order_count),
-      })),
-    });
+      })) as any[],
+    };
+
+    // Store in cache
+    cachedResponse = responseData;
+    cacheTimestamp = Date.now();
+
+    return NextResponse.json(responseData);
   } catch (error) {
     console.error("Dashboard stats error:", error);
     return NextResponse.json(

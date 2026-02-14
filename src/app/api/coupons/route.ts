@@ -7,37 +7,60 @@ import { prisma } from "@/lib/prisma";
  */
 export async function GET() {
   try {
-    const coupons = await prisma.coupon_code.findMany({
-      orderBy: { created_at: "desc" },
-      include: {
-        _count: { select: { coupon_usage: true } },
-        coupon_usage: {
-          select: { status: true },
+    // Fetch coupons and usage stats in parallel (avoid loading all usage records)
+    const [coupons, usageStats] = await Promise.all([
+      prisma.coupon_code.findMany({
+        orderBy: { created_at: "desc" },
+        select: {
+          id: true,
+          code: true,
+          discount: true,
+          percentage: true,
+          type: true,
+          start_date: true,
+          end_date: true,
+          is_forever: true,
+          is_active: true,
+          is_public: true,
+          can_take_again: true,
+          r_user_id: true,
+          created_at: true,
+          updated_at: true,
         },
-      },
-    });
+      }),
+      // Single groupBy query replaces loading ALL usage rows
+      prisma.coupon_usage.groupBy({
+        by: ["coupon_id", "status"],
+        _count: true,
+      }),
+    ]);
+
+    // Build lookup: couponId → { total, claimed, locked, redeemed }
+    const statsMap = new Map<number, { total: number; claimed: number; locked: number; redeemed: number }>();
+    for (const row of usageStats) {
+      const cid = row.coupon_id;
+      if (!statsMap.has(cid)) statsMap.set(cid, { total: 0, claimed: 0, locked: 0, redeemed: 0 });
+      const entry = statsMap.get(cid)!;
+      const cnt = row._count;
+      entry.total += cnt;
+      if (row.status === "claimed") entry.claimed += cnt;
+      else if (row.status === "locked") entry.locked += cnt;
+      else if (row.status === "redeemed") entry.redeemed += cnt;
+    }
 
     const result = coupons.map((c: any) => {
-      const usages = c.coupon_usage || [];
+      const stats = statsMap.get(c.id) || { total: 0, claimed: 0, locked: 0, redeemed: 0 };
       return {
-        id: c.id,
-        code: c.code,
-        discount: c.discount,
+        ...c,
         percentage: c.percentage ? Number(c.percentage) : 0,
-        type: c.type,
-        start_date: c.start_date,
-        end_date: c.end_date,
         is_forever: c.is_forever ?? false,
         is_active: c.is_active ?? true,
         is_public: c.is_public ?? false,
         can_take_again: c.can_take_again ?? false,
-        r_user_id: c.r_user_id,
-        created_at: c.created_at,
-        updated_at: c.updated_at,
-        total_usage: c._count.coupon_usage,
-        claimed_count: usages.filter((u: any) => u.status === "claimed").length,
-        locked_count: usages.filter((u: any) => u.status === "locked").length,
-        redeemed_count: usages.filter((u: any) => u.status === "redeemed").length,
+        total_usage: stats.total,
+        claimed_count: stats.claimed,
+        locked_count: stats.locked,
+        redeemed_count: stats.redeemed,
       };
     });
 

@@ -2,6 +2,34 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+/** Check if search looks like a product code (CN-XXX or pure digits) */
+function isProductCodeSearch(s: string): boolean {
+  return /^CN-/i.test(s) || /^\d{5,}$/.test(s);
+}
+
+// ── In-memory cache for total product count (unfiltered) ──
+let cachedTotalCount: number | null = null;
+let cachedTotalCountTime = 0;
+const COUNT_CACHE_TTL = 120_000; // 2 minutes
+
+const PRODUCT_SELECT = {
+  id: true,
+  product_code: true,
+  product_name: true,
+  display_name: true,
+  original_name: true,
+  main_image: true,
+  origin_price: true,
+  product_price: true,
+  currency_id: true,
+  category_id: true,
+  out_of_stock: true,
+  source: true,
+  product_status: true,
+  show_on_website: true,
+  created_at: true,
+} as const;
+
 /**
  * Cursor-based pagination for products.
  * Query params:
@@ -20,20 +48,80 @@ export async function GET(request: NextRequest) {
       Number.parseInt(searchParams.get("pageSize") || "50", 10),
       100
     );
-    const search = searchParams.get("search") || "";
+    const search = searchParams.get("search")?.trim() || "";
     const categoryId = searchParams.get("categoryId");
     const stockFilter = searchParams.get("stock");
     const excluded = searchParams.get("excluded");
 
-    // Build where clause
-    const where: any = {};
+    // ── Search strategy ──
+    // product_code has BTREE index → equals/startsWith is ~100ms
+    // product_name has FULLTEXT index → MATCH AGAINST is ~100ms
+    // display_name has BTREE index → startsWith is ~100ms
+    // LIKE '%...%' on any column → full scan ~9000ms on 919K rows
+    //
+    // When search looks like a product code (CN-XXX or digits),
+    // use exact/prefix match on product_code only (indexed).
+    // Otherwise, find matching IDs via raw SQL with FULLTEXT + index,
+    // then feed those IDs into the Prisma query.
+
+    let searchIdFilter: number[] | null = null; // if set, WHERE id IN (...)
+    let searchWhere: any = {}; // fallback Prisma where for search
 
     if (search) {
-      where.OR = [
-        { product_name: { contains: search } },
-        { display_name: { contains: search } },
-        { product_code: { contains: search } },
-      ];
+      if (isProductCodeSearch(search)) {
+        // Product code search → use indexed product_code column
+        const codeTerm = /^\d+$/.test(search) ? `CN-${search}` : search;
+        searchWhere = { product_code: { startsWith: codeTerm } };
+      } else {
+        // Text search → use UNION of indexed queries (each uses its own index)
+        // FULLTEXT on product_name + BTREE on display_name + BTREE on product_code
+        const ftTerm = search
+          .replaceAll(/[+\-><()~*"@]/g, " ") // strip FULLTEXT operators
+          .trim();
+
+        const cursorVal = cursor ? Number.parseInt(cursor, 10) : 0;
+
+        const matchIds = cursor
+          ? await prisma.$queryRaw<{ id: number }[]>`
+              SELECT id FROM (
+                (SELECT id FROM product WHERE MATCH(product_name) AGAINST(${ftTerm + "*"} IN BOOLEAN MODE) AND id < ${cursorVal} ORDER BY id DESC LIMIT ${pageSize + 1})
+                UNION
+                (SELECT id FROM product WHERE display_name LIKE ${search + "%"} AND id < ${cursorVal} ORDER BY id DESC LIMIT ${pageSize + 1})
+                UNION
+                (SELECT id FROM product WHERE product_code LIKE ${search + "%"} AND id < ${cursorVal} ORDER BY id DESC LIMIT ${pageSize + 1})
+              ) AS t ORDER BY id DESC LIMIT ${pageSize + 1}
+            `
+          : await prisma.$queryRaw<{ id: number }[]>`
+              SELECT id FROM (
+                (SELECT id FROM product WHERE MATCH(product_name) AGAINST(${ftTerm + "*"} IN BOOLEAN MODE) ORDER BY id DESC LIMIT ${pageSize + 1})
+                UNION
+                (SELECT id FROM product WHERE display_name LIKE ${search + "%"} ORDER BY id DESC LIMIT ${pageSize + 1})
+                UNION
+                (SELECT id FROM product WHERE product_code LIKE ${search + "%"} ORDER BY id DESC LIMIT ${pageSize + 1})
+              ) AS t ORDER BY id DESC LIMIT ${pageSize + 1}
+            `;
+
+        searchIdFilter = matchIds.map((r) => r.id);
+
+        if (searchIdFilter.length === 0) {
+          // No matches at all → return early
+          return NextResponse.json({
+            products: [],
+            nextCursor: null,
+            hasMore: false,
+            total: 0,
+            ...((!cursor) ? { pricing: await getPricing() } : {}),
+          });
+        }
+      }
+    }
+
+    // Build where clause
+    const where: any = { ...searchWhere };
+
+    // If we resolved search via raw SQL IDs, constrain by those IDs
+    if (searchIdFilter) {
+      where.id = { in: searchIdFilter };
     }
 
     // Resolve category filter: include the selected category AND all its descendants
@@ -56,18 +144,15 @@ export async function GET(request: NextRequest) {
         const excludedSet = new Set(excludedCategoryIds);
         if (excluded === "excluded") {
           if (filterCategoryIds) {
-            // Intersection: only categories that are both descendants AND excluded
             const intersection = filterCategoryIds.filter((id) => excludedSet.has(id));
             where.category_id = intersection.length > 0
               ? { in: intersection }
-              : { equals: -1 }; // No overlap → no results
+              : { equals: -1 };
           } else {
             where.category_id = { in: excludedCategoryIds };
           }
         } else {
-          // not_excluded
           if (filterCategoryIds) {
-            // Descendants minus excluded
             const filtered = filterCategoryIds.filter((id) => !excludedSet.has(id));
             where.category_id = filtered.length > 0
               ? { in: filtered }
@@ -77,47 +162,44 @@ export async function GET(request: NextRequest) {
           }
         }
       } else if (excluded === "excluded") {
-        where.id = -1; // No excluded categories → no products match
+        where.id = -1;
       } else if (filterCategoryIds) {
-        // not_excluded but no excluded categories exist → just use category filter
         where.category_id = { in: filterCategoryIds };
       }
     } else if (filterCategoryIds) {
-      // No excluded filter → just category filter with descendants
       where.category_id = { in: filterCategoryIds };
     }
 
-    // Cursor condition (we order by id DESC, so cursor means "id < cursor")
-    if (cursor) {
+    // Cursor condition (order by id DESC → cursor means id < cursor)
+    // Skip cursor in Prisma when we already applied it in raw SQL
+    if (cursor && !searchIdFilter) {
       const cursorId = Number.parseInt(cursor, 10);
       if (!Number.isNaN(cursorId)) {
         where.id = { ...(where.id || {}), lt: cursorId };
       }
     }
 
-    // Fetch one extra to determine hasMore
-    const products = await prisma.product.findMany({
-      where,
-      take: pageSize + 1,
-      orderBy: { id: "desc" },
-      select: {
-        id: true,
-        product_code: true,
-        product_name: true,
-        display_name: true,
-        original_name: true,
-        main_image: true,
-        origin_price: true,
-        product_price: true,
-        currency_id: true,
-        category_id: true,
-        out_of_stock: true,
-        source: true,
-        product_status: true,
-        show_on_website: true,
-        created_at: true,
-      },
-    });
+    // ── Run independent queries in parallel ──
+    const isFirstLoad = !cursor;
+    const isUnfilteredLoad = !search && !categoryId && !stockFilter && !excluded;
+
+    // Build count promise based on the request type
+    const countPromise = buildCountPromise(
+      isFirstLoad, search, isUnfilteredLoad,
+      where, searchWhere, searchIdFilter, pageSize
+    );
+
+    // Fire product fetch + count + pricing in parallel
+    const [products, total, pricing] = await Promise.all([
+      prisma.product.findMany({
+        where,
+        take: pageSize + 1,
+        orderBy: { id: "desc" },
+        select: PRODUCT_SELECT,
+      }),
+      countPromise,
+      isFirstLoad ? getPricing() : Promise.resolve(null),
+    ]);
 
     const hasMore = products.length > pageSize;
     const pageProducts = hasMore ? products.slice(0, pageSize) : products;
@@ -125,21 +207,7 @@ export async function GET(request: NextRequest) {
       ? pageProducts[pageProducts.length - 1].id
       : null;
 
-    // Count only on first load (no cursor) to avoid expensive count on every scroll
-    let total: number | null = null;
-    if (!cursor) {
-      total = await prisma.product.count({ where: (() => {
-        // Rebuild where without cursor for accurate total
-        const countWhere: any = { ...where };
-        if (countWhere.id?.lt) {
-          delete countWhere.id.lt;
-          if (Object.keys(countWhere.id).length === 0) delete countWhere.id;
-        }
-        return countWhere;
-      })() });
-    }
-
-    // Get category names
+    // Get category names (depends on product results)
     const categoryIds = [
       ...new Set(pageProducts.map((p: any) => p.category_id).filter(Boolean)),
     ] as number[];
@@ -151,26 +219,6 @@ export async function GET(request: NextRequest) {
           })
         : [];
     const categoryMap = new Map(categories.map((c: any) => [c.id, c.category_name]));
-
-    // Get pricing settings (only on first load)
-    let pricing = null;
-    if (!cursor) {
-      const [settings, exchangeRateRow] = await Promise.all([
-        prisma.general_settings.findFirst({
-          select: { price_markup_percentage: true },
-        }),
-        prisma.ex_currency.findFirst({
-          where: { from_currency: 9, to_currency: 6 },
-          select: { rate: true },
-        }),
-      ]);
-      pricing = {
-        markupPercent: settings?.price_markup_percentage
-          ? Number(settings.price_markup_percentage)
-          : 15,
-        exchangeRate: exchangeRateRow?.rate ?? 0.14,
-      };
-    }
 
     // Format response
     const formattedProducts = pageProducts.map((p: any) => {
@@ -207,6 +255,66 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+/**
+ * Build the count promise based on load context.
+ * Returns null if count isn't needed, uses cache for unfiltered loads.
+ */
+async function buildCountPromise(
+  isFirstLoad: boolean,
+  search: string,
+  isUnfilteredLoad: boolean,
+  where: any,
+  searchWhere: any,
+  searchIdFilter: number[] | null,
+  pageSize: number
+): Promise<number | null> {
+  if (!isFirstLoad) return null;
+
+  if (search) {
+    if (isProductCodeSearch(search)) {
+      return prisma.product.count({ where: searchWhere });
+    }
+    // For text search, we already know count from the raw query
+    if (searchIdFilter) {
+      return searchIdFilter.length > pageSize ? null : searchIdFilter.length;
+    }
+    return null;
+  }
+
+  // Unfiltered: use cached count if available
+  if (isUnfilteredLoad && cachedTotalCount !== null && Date.now() - cachedTotalCountTime < COUNT_CACHE_TTL) {
+    return cachedTotalCount;
+  }
+
+  const count = await prisma.product.count({ where });
+  if (isUnfilteredLoad) {
+    cachedTotalCount = count;
+    cachedTotalCountTime = Date.now();
+  }
+  return count;
+}
+
+/**
+ * Get pricing settings (markup + exchange rate).
+ */
+async function getPricing() {
+  const [settings, exchangeRateRow] = await Promise.all([
+    prisma.general_settings.findFirst({
+      select: { price_markup_percentage: true },
+    }),
+    prisma.ex_currency.findFirst({
+      where: { from_currency: 9, to_currency: 6 },
+      select: { rate: true },
+    }),
+  ]);
+  return {
+    markupPercent: settings?.price_markup_percentage
+      ? Number(settings.price_markup_percentage)
+      : 15,
+    exchangeRate: exchangeRateRow?.rate ?? 0.14,
+  };
 }
 
 /**

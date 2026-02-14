@@ -9,10 +9,19 @@ export async function GET() {
   try {
     const [sliders, grids] = await Promise.all([
       prisma.$queryRawUnsafe(`
-        SELECT s.*, 
-          (SELECT COUNT(*) FROM ag_attachment WHERE table_name='sliders' AND row_id=s.id) as attachment_count,
-          (SELECT file_path FROM ag_attachment WHERE table_name='sliders' AND row_id=s.id ORDER BY id DESC LIMIT 1) as attachment_image
+        SELECT s.id, s.r_store_id, s.text, s.btn_text, s.btn_url, s.order_number,
+               s.main_image, s.created_at, s.updated_at,
+               COALESCE(ac.cnt, 0) as attachment_count,
+               ai.file_path as attachment_image
         FROM sliders s 
+        LEFT JOIN (
+          SELECT row_id, COUNT(*) as cnt FROM ag_attachment WHERE table_name='sliders' GROUP BY row_id
+        ) ac ON ac.row_id = s.id
+        LEFT JOIN (
+          SELECT row_id, file_path FROM ag_attachment WHERE table_name='sliders' AND id IN (
+            SELECT MAX(id) FROM ag_attachment WHERE table_name='sliders' GROUP BY row_id
+          )
+        ) ai ON ai.row_id = s.id
         ORDER BY s.order_number ASC
       `) as Promise<any[]>,
       prisma.$queryRawUnsafe(`
@@ -28,11 +37,15 @@ export async function GET() {
     const gridIds = grids.map((g: any) => Number(g.id));
     let gridElements: any[] = [];
     if (gridIds.length > 0) {
-      gridElements = await prisma.$queryRawUnsafe(`
-        SELECT * FROM grid_elements 
-        WHERE r_grid_id IN (${gridIds.join(",")})
-        ORDER BY r_grid_id ASC, id ASC
-      `) as any[];
+      // Use parameterized placeholders instead of string interpolation
+      const placeholders = gridIds.map(() => "?").join(",");
+      gridElements = await prisma.$queryRawUnsafe(
+        `SELECT id, r_grid_id, position_x, position_y, width, height, main_image, actions, created_at, updated_at
+         FROM grid_elements 
+         WHERE r_grid_id IN (${placeholders})
+         ORDER BY r_grid_id ASC, id ASC`,
+        ...gridIds
+      ) as any[];
     }
 
     // Group elements by grid
