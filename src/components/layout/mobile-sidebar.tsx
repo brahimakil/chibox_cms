@@ -4,17 +4,8 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  LayoutDashboard,
-  ShoppingCart,
-  Package,
-  FolderTree,
-  Image,
-  Ticket,
-  Zap,
-  Users,
-  ShieldCheck,
-  Bell,
-  ClipboardList,
+  LayoutDashboard, ShoppingCart, Package, FolderTree, Image, Ticket, Zap,
+  Users, ShieldCheck, Bell, ClipboardList, Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -50,6 +41,12 @@ const navigation = [
     title: "Communication",
     items: [
       { title: "Notifications", href: "/dashboard/notifications", icon: Bell, permission: "page.notifications" },
+    ],
+  },
+  {
+    title: "AI Features",
+    items: [
+      { title: "Try On Me", href: "/dashboard/tryon-prompts", icon: Sparkles, permission: null },
     ],
   },
 ];

@@ -2879,3 +2879,15 @@ enum cms_order_item_statuses_customer_bucket {
   shipped
   delivered
 }
+
+model ai_tryon_prompts {
+  id              Int      @id @default(autoincrement())
+  category_id     Int      @unique
+  prompt_template String   @db.Text
+  is_active       Boolean  @default(true)
+  created_at      DateTime @default(now()) @db.Timestamp(0)
+  updated_at      DateTime @default(now()) @db.Timestamp(0)
+
+  @@index([category_id], map: "idx_tryon_category")
+  @@index([is_active], map: "idx_tryon_active")
+}

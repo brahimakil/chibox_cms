@@ -15,6 +15,8 @@ import {
   ImageOff,
   ExternalLink,
   ChevronRight,
+  Sparkles,
+  Plus,
 } from "lucide-react";
 import { CategoryEditForm } from "@/components/categories/category-edit-form";
 import { CategoryProductsTable } from "@/components/categories/category-products-table";
@@ -94,6 +96,16 @@ export default function CategoryDetailPage({
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxImages, setLightboxImages] = useState<string[]>([]);
 
+  // Try On Me prompt state
+  const [tryonPrompt, setTryonPrompt] = useState<{
+    has_prompt: boolean;
+    prompt: any;
+    inherited: boolean;
+    inherited_from_category_id?: number;
+    inherited_from_category_name?: string;
+  } | null>(null);
+  const [tryonLoading, setTryonLoading] = useState(true);
+
   const openImage = (url: string) => {
     setLightboxImages([url]);
     setLightboxOpen(true);
@@ -114,6 +126,16 @@ export default function CategoryDetailPage({
       })
       .catch(console.error)
       .finally(() => setLoading(false));
+  }, [id]);
+
+  // Fetch Try On Me prompt status
+  useEffect(() => {
+    setTryonLoading(true);
+    fetch(`/api/tryon-prompts/by-category/${id}`)
+      .then((r) => r.json())
+      .then((data) => setTryonPrompt(data))
+      .catch(() => setTryonPrompt(null))
+      .finally(() => setTryonLoading(false));
   }, [id]);
 
   if (loading) {
@@ -369,6 +391,85 @@ export default function CategoryDetailPage({
           </div>
         </div>
       </div>
+
+      {/* AI Try On Me Section */}
+      {!tryonLoading && (
+        <div className="rounded-xl border bg-card p-5 shadow-sm space-y-3">
+          <h3 className="font-semibold flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-purple-500" />
+            AI Try On Me
+          </h3>
+
+          {tryonPrompt?.has_prompt ? (
+            <div className="space-y-3">
+              {/* Inherited badge */}
+              {tryonPrompt.inherited && (
+                <div className="rounded-lg border border-blue-200 bg-blue-50 p-2.5 dark:border-blue-900 dark:bg-blue-950/30">
+                  <p className="text-xs text-blue-700 dark:text-blue-300">
+                    ↗️ Inherited from parent category:{" "}
+                    <Link
+                      href={`/dashboard/categories/${tryonPrompt.inherited_from_category_id}`}
+                      className="font-medium underline hover:text-blue-900 dark:hover:text-blue-200"
+                    >
+                      {tryonPrompt.inherited_from_category_name}
+                    </Link>
+                  </p>
+                </div>
+              )}
+
+              {/* Status badge */}
+              <div className="flex items-center gap-2">
+                <span
+                  className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                    tryonPrompt.prompt.is_active
+                      ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300"
+                      : "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
+                  }`}
+                >
+                  {tryonPrompt.prompt.is_active ? "Active" : "Inactive"}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  Prompt #{tryonPrompt.prompt.id}
+                </span>
+              </div>
+
+              {/* Prompt preview */}
+              <div className="rounded-lg bg-muted/50 p-3 text-sm leading-relaxed max-h-32 overflow-auto">
+                {tryonPrompt.prompt.prompt_template}
+              </div>
+
+              {/* Edit button — opens edit page in new tab */}
+              <a
+                href={`/dashboard/tryon-prompts/${tryonPrompt.prompt.id}/edit`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 rounded-lg border bg-background px-3 py-1.5 text-sm font-medium transition-colors hover:bg-accent"
+              >
+                <Edit className="h-3.5 w-3.5" />
+                Edit Prompt
+                <ExternalLink className="h-3 w-3 text-muted-foreground" />
+              </a>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                No AI try-on prompt configured for this category. Products here
+                won&apos;t show the &quot;Try On Me&quot; button in the mobile app.
+              </p>
+              <a
+                href={`/dashboard/tryon-prompts/new?category_id=${category.id}&category_name=${encodeURIComponent(name)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add Prompt
+                <ExternalLink className="h-3 w-3 opacity-70" />
+              </a>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Children Categories */}
       {children.length > 0 && (
