@@ -7,7 +7,7 @@ import { prisma } from "./prisma";
 export async function getUserRoleAndPermissions(userId: number) {
   // 1. Get the user's primary role
   const userRole = await prisma.cms_user_roles.findFirst({
-    where: { user_id: userId, is_primary: 1 },
+    where: { user_id: userId, is_primary: true },
   });
 
   if (!userRole) {
@@ -25,7 +25,7 @@ export async function getUserRoleAndPermissions(userId: number) {
 
   // 2. Get role-level permissions (allowed = 1)
   const rolePerms = await prisma.cms_role_permissions.findMany({
-    where: { role_id: role.id, allowed: 1 },
+    where: { role_id: role.id, allowed: true },
   });
   const permIds = rolePerms.map((rp) => rp.permission_id);
 
@@ -92,7 +92,7 @@ export async function getAllowedTransitions(roleKey: string, currentStatusId: nu
     where: {
       role_id: role.id,
       from_status_id: currentStatusId,
-      can_transition: 1,
+      can_transition: true,
     },
   });
 
