@@ -57,16 +57,62 @@ function buildImageGallery(product: any): string[] {
   return images;
 }
 
-function computeAppPrice(product: any, exchangeRate: number, markupPercent: number): { originPrice: number | null; convertedUSD: number | null; appPrice: number | null } {
-  const originPrice = product.origin_price ? Number(product.origin_price) : null;
+function computeAppPrice(
+  product: any,
+  exchangeRate: number,
+  markupPercent: number
+): {
+  originPrice: number | null;
+  originPriceRange: { min: number; max: number } | null;
+  convertedUSD: number | null;
+  appPrice: number | null;
+} {
+  // 1. Resolve origin price in CNY — cascade through available sources
+  let originPrice = product.origin_price ? Number(product.origin_price) : null;
+  let originPriceRange: { min: number; max: number } | null = null;
+
+  const info1688 = product.product_1688_info?.[0];
+
+  if (originPrice === null && info1688) {
+    // Use 1688 info origin price (may also have min/max)
+    originPrice = info1688.origin_price ? Number(info1688.origin_price) : null;
+    const min = info1688.origin_price_min ? Number(info1688.origin_price_min) : null;
+    const max = info1688.origin_price_max ? Number(info1688.origin_price_max) : null;
+    if (min !== null && max !== null && min !== max) {
+      originPriceRange = { min, max };
+    }
+  }
+
+  // Last resort: for 1688 products, product_price IS in CNY
+  if (originPrice === null && product.source === "1688" && product.product_price) {
+    originPrice = Number(product.product_price);
+  }
+
+  // 2. Convert to USD and apply markup
   const convertedUSD = originPrice ? originPrice * exchangeRate : null;
   let appPrice: number | null = null;
+
   if (convertedUSD) {
     appPrice = Math.round(convertedUSD * (1 + markupPercent / 100) * 100) / 100;
-  } else if (product.product_price) {
+  } else if (product.product_price && product.source !== "1688") {
+    // Non-1688 products: product_price is already in USD
     appPrice = Math.round(Number(product.product_price) * 100) / 100;
   }
-  return { originPrice, convertedUSD, appPrice };
+
+  return { originPrice, originPriceRange, convertedUSD, appPrice };
+}
+
+function formatOriginPrice(
+  originPrice: number | null,
+  originPriceRange: { min: number; max: number } | null
+): string {
+  if (originPriceRange) {
+    return `¥${originPriceRange.min.toFixed(2)} – ¥${originPriceRange.max.toFixed(2)}`;
+  }
+  if (originPrice) {
+    return `¥${originPrice.toFixed(2)}`;
+  }
+  return "—";
 }
 
 export default function ProductDetailPage({
@@ -215,7 +261,7 @@ export default function ProductDetailPage({
   const images = buildImageGallery(product);
   const displayName =
     product.display_name || product.original_name || product.product_name || product.product_code;
-  const { originPrice, convertedUSD, appPrice } = computeAppPrice(product, exchangeRate, markupPercent);
+  const { originPrice, originPriceRange, convertedUSD, appPrice } = computeAppPrice(product, exchangeRate, markupPercent);
 
   return (
     <div className="space-y-6">
@@ -365,7 +411,7 @@ export default function ProductDetailPage({
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <PriceCard
                 label="Origin Price"
-                value={originPrice ? `¥${originPrice.toFixed(2)}` : "—"}
+                value={formatOriginPrice(originPrice, originPriceRange)}
                 sublabel="CNY (from 1688)"
               />
               <PriceCard
