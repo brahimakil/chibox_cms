@@ -46,7 +46,7 @@ const navigation = [
   {
     title: "AI Features",
     items: [
-      { title: "Try On Me", href: "/dashboard/tryon-prompts", icon: Sparkles, permission: null },
+      { title: "Try On Me", href: "/dashboard/tryon-prompts", icon: Sparkles, permission: "page.tryon_prompts" },
     ],
   },
 ];

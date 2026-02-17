@@ -134,7 +134,7 @@ const navigation = [
         title: "Try On Me",
         href: "/dashboard/tryon-prompts",
         icon: Sparkles,
-        permission: null,
+        permission: "page.tryon_prompts",
       },
     ],
   },

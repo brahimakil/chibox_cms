@@ -8,6 +8,11 @@ const JWT_SECRET = new TextEncoder().encode(
 
 const PUBLIC_PATHS = ["/login", "/signup", "/api/auth/login", "/api/auth/signup"];
 
+// Route-prefix → required permission (checked server-side)
+const ROUTE_PERMISSIONS: Record<string, string> = {
+  "/dashboard/tryon-prompts": "page.tryon_prompts",
+};
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -44,7 +49,20 @@ export async function middleware(request: NextRequest) {
   }
 
   try {
-    await jwtVerify(token, JWT_SECRET);
+    const { payload } = await jwtVerify(token, JWT_SECRET);
+
+    // Check route-level permissions
+    for (const [route, requiredPerm] of Object.entries(ROUTE_PERMISSIONS)) {
+      if (pathname.startsWith(route)) {
+        const perms = (payload.permissions as string[]) || [];
+        if (!perms.includes(requiredPerm)) {
+          // Redirect unauthorized users to dashboard
+          return NextResponse.redirect(new URL("/dashboard", request.url));
+        }
+        break;
+      }
+    }
+
     return NextResponse.next();
   } catch {
     // Token expired or invalid
