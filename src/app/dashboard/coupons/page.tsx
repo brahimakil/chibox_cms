@@ -6,7 +6,6 @@ import {
   Loader2,
   Pencil,
   Trash2,
-  MoreHorizontal,
   Ticket,
   Copy,
   Users,
@@ -46,13 +45,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 
 /* ─── Types ─── */
@@ -645,49 +638,56 @@ export default function CouponsPage() {
                   </div>
 
                   {/* Actions */}
-                  <div className="flex flex-col items-center justify-between p-4">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => openEdit(c)}>
-                          <Pencil className="mr-2 h-4 w-4" />
-                          Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => openUsageDialog(c)}>
-                          <Users className="mr-2 h-4 w-4" />
-                          View Redemptions
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => copyCode(c)}>
-                          <Copy className="mr-2 h-4 w-4" />
-                          Copy Code
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => toggleActive(c)}>
-                          {c.is_active ? (
-                            <>
-                              <EyeOff className="mr-2 h-4 w-4" />
-                              Deactivate
-                            </>
-                          ) : (
-                            <>
-                              <Eye className="mr-2 h-4 w-4" />
-                              Activate
-                            </>
-                          )}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => setDeleteTarget(c)}
-                          className="text-destructive focus:text-destructive"
-                        >
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                  <div className="flex flex-col items-center justify-center gap-1 p-3">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      title="Edit"
+                      onClick={() => openEdit(c)}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      title="View Redemptions"
+                      onClick={() => openUsageDialog(c)}
+                    >
+                      <Users className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      title="Copy Code"
+                      onClick={() => copyCode(c)}
+                    >
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      title={c.is_active ? "Deactivate" : "Activate"}
+                      onClick={() => toggleActive(c)}
+                    >
+                      {c.is_active ? (
+                        <EyeOff className="h-4 w-4" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-destructive hover:text-destructive"
+                      title="Delete"
+                      onClick={() => setDeleteTarget(c)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
                 </div>
               </div>

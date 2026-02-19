@@ -6,7 +6,6 @@ import {
   Loader2,
   Pencil,
   Trash2,
-  MoreHorizontal,
   MonitorPlay,
   Eye,
   EyeOff,
@@ -46,14 +45,9 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { resolveImageUrl } from "@/lib/image-url";
+import { toast } from "sonner";
 
 /* ─── Types ─── */
 
@@ -469,17 +463,21 @@ export default function SplashAdsPage() {
       };
 
       if (editingAd) {
-        await fetch(`/api/splash-ads/${editingAd.id}`, {
+        const res = await fetch(`/api/splash-ads/${editingAd.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
+        if (!res.ok) throw new Error("Failed to update");
+        toast.success("Splash ad updated");
       } else {
-        await fetch("/api/splash-ads", {
+        const res = await fetch("/api/splash-ads", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
+        if (!res.ok) throw new Error("Failed to create");
+        toast.success("Splash ad created");
       }
 
       // Revoke blob URLs
@@ -489,7 +487,7 @@ export default function SplashAdsPage() {
       setDialogOpen(false);
       fetchAds();
     } catch (err) {
-      console.error("Failed to save splash ad:", err);
+      toast.error("Failed to save splash ad");
     } finally {
       setSaving(false);
     }
@@ -497,25 +495,36 @@ export default function SplashAdsPage() {
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
+    const targetId = deleteTarget.id;
+    // Optimistic: remove from UI immediately
+    setAds((prev) => prev.filter((a) => a.id !== targetId));
+    setDeleteTarget(null);
     try {
-      await fetch(`/api/splash-ads/${deleteTarget.id}`, { method: "DELETE" });
-      setDeleteTarget(null);
-      fetchAds();
+      const res = await fetch(`/api/splash-ads/${targetId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed");
+      toast.success("Splash ad deleted");
     } catch (err) {
-      console.error("Failed to delete splash ad:", err);
+      toast.error("Failed to delete splash ad");
+      fetchAds(); // revert
     }
   };
 
   const toggleActive = async (ad: SplashAd) => {
+    // Optimistic: toggle in UI immediately
+    setAds((prev) =>
+      prev.map((a) => a.id === ad.id ? { ...a, is_active: !a.is_active } : a)
+    );
     try {
-      await fetch(`/api/splash-ads/${ad.id}`, {
+      const res = await fetch(`/api/splash-ads/${ad.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ is_active: !ad.is_active }),
       });
-      fetchAds();
+      if (!res.ok) throw new Error("Failed");
+      toast.success(ad.is_active ? "Splash ad deactivated" : "Splash ad activated");
     } catch (err) {
-      console.error("Failed to toggle splash ad:", err);
+      toast.error("Failed to toggle splash ad");
+      fetchAds(); // revert
     }
   };
 
@@ -768,41 +777,33 @@ export default function SplashAdsPage() {
                     </div>
                   </div>
 
-                  {/* Actions */}
-                  <div className="flex flex-col items-center justify-between p-4">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => openEdit(ad)}>
-                          <Pencil className="mr-2 h-4 w-4" />
-                          Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => toggleActive(ad)}>
-                          {ad.is_active ? (
-                            <>
-                              <EyeOff className="mr-2 h-4 w-4" />
-                              Deactivate
-                            </>
-                          ) : (
-                            <>
-                              <Eye className="mr-2 h-4 w-4" />
-                              Activate
-                            </>
-                          )}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => setDeleteTarget(ad)}
-                          className="text-destructive focus:text-destructive"
-                        >
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                  {/* Action buttons – inline instead of dropdown */}
+                  <div className="flex flex-col items-center justify-center gap-1.5 p-4">
+                    <Button variant="outline" size="sm" className="h-7 w-full gap-1.5 text-xs" onClick={() => openEdit(ad)}>
+                      <Pencil className="h-3 w-3" />
+                      Edit
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 w-full gap-1.5 text-xs"
+                      onClick={() => toggleActive(ad)}
+                    >
+                      {ad.is_active ? (
+                        <><EyeOff className="h-3 w-3" />Deactivate</>
+                      ) : (
+                        <><Eye className="h-3 w-3" />Activate</>
+                      )}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 w-full gap-1.5 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                      onClick={() => setDeleteTarget(ad)}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                      Delete
+                    </Button>
                   </div>
                 </div>
               </div>

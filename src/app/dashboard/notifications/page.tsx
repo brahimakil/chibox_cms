@@ -57,7 +57,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { resolveImageUrl } from "@/lib/image-url";
+import { resolveImageUrl, thumbnailUrl } from "@/lib/image-url";
 
 /* ═══════════════════════════════════════════ Types ═══ */
 
@@ -1145,7 +1145,7 @@ export default function NotificationsPage() {
                                 }}
                               >
                                 {p.main_image ? (
-                                  <img src={resolveImageUrl(p.main_image)} alt="" className="h-8 w-8 rounded-md border object-cover" />
+                                  <img src={thumbnailUrl(p.main_image) || ""} alt="" className="h-8 w-8 rounded-md border object-cover" />
                                 ) : <Tag className="h-5 w-5 shrink-0 text-muted-foreground" />}
                                 <div className="min-w-0 flex-1">
                                   <p className="truncate text-xs font-medium">{p.product_name}</p>

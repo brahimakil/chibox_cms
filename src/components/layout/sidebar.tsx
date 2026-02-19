@@ -19,6 +19,7 @@ import {
   ChevronRight,
   ClipboardList,
   Sparkles,
+  BarChart3,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -135,6 +136,12 @@ const navigation = [
         href: "/dashboard/tryon-prompts",
         icon: Sparkles,
         permission: "page.tryon_prompts",
+      },
+      {
+        title: "Try-On Analytics",
+        href: "/dashboard/tryon-analytics",
+        icon: BarChart3,
+        permission: "page.tryon_analytics",
       },
     ],
   },

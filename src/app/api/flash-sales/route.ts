@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { invalidateHomeCache } from "@/lib/cache-invalidation";
 
 /**
  * GET /api/flash-sales — List all flash sales with their product counts
@@ -9,8 +10,8 @@ export async function GET() {
   try {
     const [sales, productCounts] = await Promise.all([
       prisma.$queryRawUnsafe(`
-        SELECT id, title, slug, color_1, color_2, color_3, slider_type, 
-               end_time, display, r_store_id, discount, order_number,
+        SELECT id, title, slug, color_1, color_2, color_3, slider_type,
+               start_time, end_time, display, r_store_id, discount, order_number,
                created_at, updated_at
         FROM flash_sales ORDER BY order_number ASC
       `) as Promise<any[]>,
@@ -33,6 +34,7 @@ export async function GET() {
       color_2: s.color_2,
       color_3: s.color_3,
       slider_type: Number(s.slider_type),
+      start_time: s.start_time,
       end_time: s.end_time,
       display: Boolean(s.display),
       r_store_id: Number(s.r_store_id),
@@ -76,6 +78,7 @@ export async function POST(request: NextRequest) {
         color_2: body.color_2 || "#3c5d9f",
         color_3: body.color_3 || "#208d4f",
         slider_type: body.slider_type ?? 1,
+        start_time: body.start_time ? new Date(body.start_time) : null,
         end_time: body.end_time
           ? new Date(body.end_time)
           : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // default 1 year if not set
@@ -100,6 +103,9 @@ export async function POST(request: NextRequest) {
         );
       }
     }
+
+    // Invalidate backend home cache so the change is instant
+    invalidateHomeCache();
 
     return NextResponse.json({ success: true, sale });
   } catch (error) {

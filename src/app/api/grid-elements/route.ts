@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { invalidateHomeCache } from "@/lib/cache-invalidation";
 
 /**
  * POST /api/grid-elements — Create a new grid element in the mobile grid
@@ -54,6 +55,9 @@ export async function POST(request: NextRequest) {
         updated_at: new Date(),
       },
     });
+
+    // Invalidate backend home cache so the change is instant
+    invalidateHomeCache();
 
     return NextResponse.json({ success: true, element: el });
   } catch (error) {

@@ -10,15 +10,17 @@ import { SHIPPING_STATUS, PAYMENT_TYPES } from "@/lib/order-constants";
  *   page, limit, search, status (workflow_status_key), is_paid, shipping_status,
  *   shipping_method, payment_type, date_from, date_to,
  *   sort_by (created_at|total|status), sort_dir (asc|desc),
- *   fully_paid_first (1|0), customer_id
+ *   fully_paid_first (1|0), customer_id,
+ *   cursor (id of last order, for infinite-scroll mode)
  */
 export async function GET(req: NextRequest) {
   try {
     const sp = req.nextUrl.searchParams;
 
-    const page = Math.max(1, Number(sp.get("page")) || 1);
     const limit = Math.min(100, Math.max(1, Number(sp.get("limit")) || 25));
-    const skip = (page - 1) * limit;
+    const cursor = sp.get("cursor");
+    const page = cursor ? 1 : Math.max(1, Number(sp.get("page")) || 1);
+    const skip = cursor ? 0 : (page - 1) * limit;
 
     const search = sp.get("search")?.trim() || "";
     const status = sp.get("status");
@@ -89,6 +91,19 @@ export async function GET(req: NextRequest) {
       const end = new Date(dateTo);
       end.setHours(23, 59, 59, 999);
       where.created_at = { ...(where.created_at || {}), lte: end };
+    }
+
+    // ── Cursor support (for infinite scroll) ─────────────────────
+    if (cursor) {
+      const cursorId = Number(cursor);
+      if (Number.isFinite(cursorId) && cursorId > 0) {
+        // Default sort is DESC by created_at/id, so cursor means "id < cursorId"
+        if (sortDir === "asc") {
+          where.id = { ...(where.id || {}), gt: cursorId };
+        } else {
+          where.id = { ...(where.id || {}), lt: cursorId };
+        }
+      }
     }
 
     // ── Sorting ────────────────────────────────────────────────────
@@ -287,8 +302,15 @@ export async function GET(req: NextRequest) {
       };
     }).sort((a, b) => a.status_order - b.status_order);
 
+    // Derive cursor info for infinite scroll
+    const lastOrder = enriched[enriched.length - 1];
+    const nextCursor = lastOrder ? lastOrder.id : null;
+    const hasMore = enriched.length === limit;
+
     return NextResponse.json({
       orders: enriched,
+      nextCursor,
+      hasMore,
       pagination: {
         page,
         limit,

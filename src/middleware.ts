@@ -11,6 +11,7 @@ const PUBLIC_PATHS = ["/login", "/signup", "/api/auth/login", "/api/auth/signup"
 // Route-prefix → required permission (checked server-side)
 const ROUTE_PERMISSIONS: Record<string, string> = {
   "/dashboard/tryon-prompts": "page.tryon_prompts",
+  "/dashboard/tryon-analytics": "page.tryon_analytics",
 };
 
 export async function middleware(request: NextRequest) {

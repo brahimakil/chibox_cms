@@ -23,9 +23,10 @@ export async function GET(req: NextRequest) {
     }
 
     const sp = req.nextUrl.searchParams;
-    const page = Math.max(1, Number(sp.get("page")) || 1);
     const limit = Math.min(100, Math.max(1, Number(sp.get("limit")) || 50));
-    const skip = (page - 1) * limit;
+    const cursor = sp.get("cursor");
+    const page = cursor ? 1 : Math.max(1, Number(sp.get("page")) || 1);
+    const skip = cursor ? 0 : (page - 1) * limit;
 
     const search = sp.get("search")?.trim() || "";
     const workflowStatus = sp.get("workflow_status");
@@ -104,6 +105,20 @@ export async function GET(req: NextRequest) {
 
     // Clean up empty AND
     if (where.AND.length === 0) delete where.AND;
+
+    // ── Cursor support (for infinite scroll) ─────────────────────
+    if (cursor) {
+      const cursorId = Number(cursor);
+      if (Number.isFinite(cursorId) && cursorId > 0) {
+        if (sortDir === "asc") {
+          if (!where.AND) where.AND = [];
+          where.AND.push({ id: { gt: cursorId } });
+        } else {
+          if (!where.AND) where.AND = [];
+          where.AND.push({ id: { lt: cursorId } });
+        }
+      }
+    }
 
     // ── Sorting ─────────────────────────────────────────────────
     const validSorts: Record<string, any> = {
@@ -226,9 +241,16 @@ export async function GET(req: NextRequest) {
       };
     }).sort((a, b) => a.status_order - b.status_order);
 
+    // Derive cursor info for infinite scroll
+    const lastItem = enriched[enriched.length - 1];
+    const nextCursor = lastItem ? lastItem.id : null;
+    const hasMore = enriched.length === limit;
+
     return NextResponse.json({
       items: enriched,
       roleKey: session.roleKey,
+      nextCursor,
+      hasMore,
       pagination: {
         page,
         limit,

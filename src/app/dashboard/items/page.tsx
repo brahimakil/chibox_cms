@@ -1,13 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 // Using plain <img> for product images since they come from many unpredictable CDN domains
 import Link from "next/link";
 import {
   ClipboardList,
   Search,
-  ChevronLeft,
-  ChevronRight,
   Loader2,
   ExternalLink,
   Package,
@@ -18,6 +16,8 @@ import {
   Square,
   MinusSquare,
 } from "lucide-react";
+import { thumbnailUrl } from "@/lib/image-url";
+import { useVirtualizer } from "@tanstack/react-virtual";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -202,9 +202,11 @@ function WorkflowModal({
 export default function ItemListPage() {
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
+  const [nextCursor, setNextCursor] = useState<number | null>(null);
+  const [hasMore, setHasMore] = useState(true);
+  const loadingRef = useRef(false);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [statusSummary, setStatusSummary] = useState<any[]>([]);
@@ -214,34 +216,55 @@ export default function ItemListPage() {
   const [showBulkModal, setShowBulkModal] = useState(false);
   const [userRole, setUserRole] = useState<string>("");
 
-  const fetchItems = useCallback(async () => {
-    setLoading(true);
+  const PAGE_SIZE = 50;
+
+  const fetchItems = useCallback(async (cursorId: number | null, append: boolean) => {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
+    if (append) setLoadingMore(true);
+    else setLoading(true);
+
     try {
-      const params = new URLSearchParams({
-        page: String(page),
-        limit: "50",
-      });
+      const params = new URLSearchParams();
+      params.set("limit", String(PAGE_SIZE));
+      if (cursorId) params.set("cursor", String(cursorId));
       if (search) params.set("search", search);
       if (statusFilter) params.set("workflow_status", statusFilter);
       if (orderIdFilter) params.set("order_id", orderIdFilter);
 
       const res = await fetch(`/api/orders/items?${params}`);
       const data = await res.json();
-      setItems(data.items || []);
-      setTotalPages(data.pagination?.totalPages || 1);
-      setTotalCount(data.pagination?.totalCount || 0);
-      setStatusSummary(data.statusSummary || []);
-      if (data.roleKey) setUserRole(data.roleKey);
+
+      if (append) {
+        setItems((prev) => [...prev, ...(data.items || [])]);
+      } else {
+        setItems(data.items || []);
+        setTotalCount(data.pagination?.totalCount || 0);
+        setStatusSummary(data.statusSummary || []);
+        if (data.roleKey) setUserRole(data.roleKey);
+      }
+      setNextCursor(data.nextCursor ?? null);
+      setHasMore(data.hasMore ?? false);
     } catch {
-      setItems([]);
+      if (!append) setItems([]);
     } finally {
       setLoading(false);
+      setLoadingMore(false);
+      loadingRef.current = false;
     }
-  }, [page, search, statusFilter, orderIdFilter]);
+  }, [search, statusFilter, orderIdFilter]);
 
   useEffect(() => {
-    fetchItems();
+    setNextCursor(null);
+    setHasMore(true);
+    fetchItems(null, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchItems]);
+
+  const handleLoadMore = useCallback(() => {
+    if (!hasMore || loadingRef.current || !nextCursor) return;
+    fetchItems(nextCursor, true);
+  }, [hasMore, nextCursor, fetchItems]);
 
   // Clear selection when items change (page change, filter change, etc.)
   useEffect(() => {
@@ -250,9 +273,31 @@ export default function ItemListPage() {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    setPage(1);
-    fetchItems();
+    // Filter change triggers useEffect via fetchItems dependency
   };
+
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const ROW_HEIGHT = 56;
+  const rowVirtualizer = useVirtualizer({
+    count: items.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 15,
+  });
+
+  // Infinite scroll – load more when near bottom
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = el;
+      if (scrollHeight - scrollTop - clientHeight < 300) {
+        handleLoadMore();
+      }
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [handleLoadMore]);
 
   // ── Selection helpers ───────────────────────────────────────
   const selectableItems = useMemo(
@@ -304,7 +349,7 @@ export default function ItemListPage() {
       {/* Status filter tabs */}
       <div className="flex flex-wrap gap-2">
         <button
-          onClick={() => { setStatusFilter(""); setPage(1); }}
+          onClick={() => setStatusFilter("")}
           className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
             !statusFilter
               ? "bg-primary text-primary-foreground"
@@ -318,7 +363,7 @@ export default function ItemListPage() {
           .map((s) => (
             <button
               key={s.status_key}
-              onClick={() => { setStatusFilter(s.status_key); setPage(1); }}
+              onClick={() => setStatusFilter(s.status_key)}
               className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
                 statusFilter === s.status_key
                   ? "bg-primary text-primary-foreground"
@@ -333,7 +378,7 @@ export default function ItemListPage() {
           .map((s) => (
             <button
               key={s.status_key}
-              onClick={() => { setStatusFilter(s.status_key); setPage(1); }}
+              onClick={() => setStatusFilter(s.status_key)}
               className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
                 statusFilter === s.status_key
                   ? "bg-red-600 text-white"
@@ -365,7 +410,6 @@ export default function ItemListPage() {
             onChange={(e) => {
               const val = e.target.value.replace(/\D/g, "");
               setOrderIdFilter(val);
-              setPage(1);
             }}
             placeholder="Order #"
             className="w-full rounded-md border py-2 pl-10 pr-4 text-sm"
@@ -374,7 +418,7 @@ export default function ItemListPage() {
         {(search || orderIdFilter) && (
           <button
             type="button"
-            onClick={() => { setSearch(""); setOrderIdFilter(""); setPage(1); }}
+            onClick={() => { setSearch(""); setOrderIdFilter(""); }}
             className="rounded-md border px-3 py-2 text-sm"
           >
             <X className="h-4 w-4" />
@@ -415,181 +459,191 @@ export default function ItemListPage() {
           <p className="text-muted-foreground">No items found</p>
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/50">
-              <tr>
-                <th className="w-10 px-4 py-3 text-left">
-                  <button onClick={toggleSelectAll} className="text-muted-foreground hover:text-foreground">
-                    {allSelectableSelected ? (
-                      <CheckSquare className="h-4 w-4" />
-                    ) : someSelected ? (
-                      <MinusSquare className="h-4 w-4" />
-                    ) : (
-                      <Square className="h-4 w-4" />
-                    )}
-                  </button>
-                </th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Item</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Order</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Qty</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Tracking</th>
-                {(userRole === "super_admin" || userRole === "buyer") && (
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Supplier</th>
+        <div className="rounded-lg border overflow-hidden">
+          {/* Header row – stays fixed */}
+          <div
+            className="grid items-center border-b bg-muted/80 text-sm font-medium"
+            style={{ gridTemplateColumns: (userRole === "super_admin" || userRole === "buyer") ? "40px minmax(180px,2fr) 90px 50px 100px minmax(100px,1fr) 90px 110px" : "40px minmax(180px,2fr) 90px 50px 100px minmax(100px,1fr) 110px" }}
+          >
+            <div className="px-3 py-3 flex justify-center">
+              <button onClick={toggleSelectAll} className="text-muted-foreground hover:text-foreground">
+                {allSelectableSelected ? (
+                  <CheckSquare className="h-4 w-4" />
+                ) : someSelected ? (
+                  <MinusSquare className="h-4 w-4" />
+                ) : (
+                  <Square className="h-4 w-4" />
                 )}
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {items.map((item) => (
-                <tr
-                  key={item.id}
-                  onClick={() => { if (!item.is_terminal) toggleSelectItem(item.id); }}
-                  className={`hover:bg-muted/30 transition-colors ${
-                    !item.is_terminal ? "cursor-pointer" : ""
-                  } ${selectedIds.has(item.id) ? "bg-primary/5" : ""}`}
-                >
-                  {/* Checkbox */}
-                  <td className="px-4 py-3">
-                    {!item.is_terminal ? (
-                      <button
-                        onClick={() => toggleSelectItem(item.id)}
-                        className="text-muted-foreground hover:text-foreground"
-                      >
-                        {selectedIds.has(item.id) ? (
-                          <CheckSquare className="h-4 w-4 text-primary" />
-                        ) : (
-                          <Square className="h-4 w-4" />
-                        )}
-                      </button>
-                    ) : (
-                      <span className="inline-block h-4 w-4" />
-                    )}
-                  </td>
-                  {/* Item info */}
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      {item.image_url ? (
-                        <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-md border">
-                          <img
-                            src={item.image_url}
-                            alt={item.product_name}
-                            className="h-full w-full object-cover"
-                          />
-                        </div>
+              </button>
+            </div>
+            <div className="px-3 py-3">Item</div>
+            <div className="px-3 py-3">Order</div>
+            <div className="px-3 py-3 text-center">Qty</div>
+            <div className="px-3 py-3">Status</div>
+            <div className="px-3 py-3">Tracking</div>
+            {(userRole === "super_admin" || userRole === "buyer") && (
+              <div className="px-3 py-3">Supplier</div>
+            )}
+            <div className="px-3 py-3">Actions</div>
+          </div>
+
+          {/* Virtualized scrollable body */}
+          <div
+            ref={scrollContainerRef}
+            className="overflow-auto"
+            style={{ height: "calc(100vh - 370px)", minHeight: "400px" }}
+          >
+            <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, width: "100%", position: "relative" }}>
+              {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                const item = items[virtualRow.index];
+                if (!item) return null;
+                return (
+                  <div
+                    key={item.id}
+                    onClick={() => { if (!item.is_terminal) toggleSelectItem(item.id); }}
+                    className={`grid items-center border-b text-sm transition-colors hover:bg-muted/30 absolute left-0 w-full ${
+                      !item.is_terminal ? "cursor-pointer" : ""
+                    } ${selectedIds.has(item.id) ? "bg-primary/5" : ""}`}
+                    style={{
+                      gridTemplateColumns: (userRole === "super_admin" || userRole === "buyer") ? "40px minmax(180px,2fr) 90px 50px 100px minmax(100px,1fr) 90px 110px" : "40px minmax(180px,2fr) 90px 50px 100px minmax(100px,1fr) 110px",
+                      height: `${virtualRow.size}px`,
+                      transform: `translateY(${virtualRow.start}px)`,
+                    }}
+                  >
+                    {/* Checkbox */}
+                    <div className="px-3 py-2 flex justify-center">
+                      {!item.is_terminal ? (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); toggleSelectItem(item.id); }}
+                          className="text-muted-foreground hover:text-foreground"
+                        >
+                          {selectedIds.has(item.id) ? (
+                            <CheckSquare className="h-4 w-4 text-primary" />
+                          ) : (
+                            <Square className="h-4 w-4" />
+                          )}
+                        </button>
                       ) : (
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border bg-muted">
-                          <Package className="h-4 w-4 text-muted-foreground" />
-                        </div>
+                        <span className="inline-block h-4 w-4" />
                       )}
-                      <div className="min-w-0">
-                        <p className="truncate font-medium max-w-[200px]" title={item.product_name}>
-                          {item.product_name}
-                        </p>
-                        {item.variation_name && (
-                          <p className="text-xs text-muted-foreground">{item.variation_name}</p>
+                    </div>
+                    {/* Item info */}
+                    <div className="px-3 py-2">
+                      <div className="flex items-center gap-3">
+                        {item.image_url ? (
+                          <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-md border">
+                            <img
+                              src={thumbnailUrl(item.image_url)}
+                              alt={item.product_name}
+                              className="h-full w-full object-cover"
+                              loading="lazy"
+                            />
+                          </div>
+                        ) : (
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border bg-muted">
+                            <Package className="h-4 w-4 text-muted-foreground" />
+                          </div>
                         )}
-                        <p className="text-xs text-muted-foreground">#{item.id}</p>
+                        <div className="min-w-0">
+                          <p className="truncate font-medium max-w-[200px]" title={item.product_name}>
+                            {item.product_name}
+                          </p>
+                          {item.variation_name && (
+                            <p className="text-xs text-muted-foreground">{item.variation_name}</p>
+                          )}
+                          <p className="text-xs text-muted-foreground">#{item.id}</p>
+                        </div>
                       </div>
                     </div>
-                  </td>
 
-                  {/* Order */}
-                  <td className="px-4 py-3">
-                    <Link
-                      href={`/dashboard/orders/${item.order_id}`}
-                      className="text-primary hover:underline font-medium"
-                    >
-                      #{item.order_id}
-                    </Link>
-                    {item.customer_name && (
-                      <p className="text-xs text-muted-foreground">{item.customer_name}</p>
-                    )}
-                  </td>
-
-                  {/* Qty */}
-                  <td className="px-4 py-3 font-medium">{item.quantity}</td>
-
-                  {/* Workflow status */}
-                  <td className="px-4 py-3">
-                    <WorkflowBadge
-                      statusKey={item.workflow_status_key}
-                      label={item.workflow_status_label}
-                    />
-                  </td>
-
-                  {/* Tracking */}
-                  <td className="px-4 py-3">
-                    {item.tracking_number ? (
-                      <div className="flex items-center gap-1">
-                        <Truck className="h-3.5 w-3.5 text-muted-foreground" />
-                        <span className="text-xs font-mono">{item.tracking_number}</span>
-                      </div>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">—</span>
-                    )}
-                  </td>
-
-                  {/* Supplier */}
-                  {(userRole === "super_admin" || userRole === "buyer") && (
-                  <td className="px-4 py-3">
-                    {item.supplier_link ? (
-                      <a
-                        href={item.supplier_link}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                    {/* Order */}
+                    <div className="px-3 py-2">
+                      <Link
+                        href={`/dashboard/orders/${item.order_id}`}
+                        className="text-primary hover:underline font-medium"
+                        onClick={(e) => e.stopPropagation()}
                       >
-                        <ExternalLink className="h-3 w-3" />
-                        Product
-                      </a>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">—</span>
-                    )}
-                  </td>
-                  )}
+                        #{item.order_id}
+                      </Link>
+                      {item.customer_name && (
+                        <p className="text-xs text-muted-foreground">{item.customer_name}</p>
+                      )}
+                    </div>
 
-                  {/* Actions */}
-                  <td className="px-4 py-3">
-                    {!item.is_terminal && (
-                      <button
-                        onClick={() => setSelectedItem(item)}
-                        className="rounded-md bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/20 transition-colors"
-                      >
-                        Change Status
-                      </button>
+                    {/* Qty */}
+                    <div className="px-3 py-2 text-center font-medium">{item.quantity}</div>
+
+                    {/* Workflow status */}
+                    <div className="px-3 py-2">
+                      <WorkflowBadge
+                        statusKey={item.workflow_status_key}
+                        label={item.workflow_status_label}
+                      />
+                    </div>
+
+                    {/* Tracking */}
+                    <div className="px-3 py-2">
+                      {item.tracking_number ? (
+                        <div className="flex items-center gap-1">
+                          <Truck className="h-3.5 w-3.5 text-muted-foreground" />
+                          <span className="text-xs font-mono">{item.tracking_number}</span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </div>
+
+                    {/* Supplier */}
+                    {(userRole === "super_admin" || userRole === "buyer") && (
+                    <div className="px-3 py-2">
+                      {item.supplier_link ? (
+                        <a
+                          href={item.supplier_link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                          Product
+                        </a>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </div>
                     )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+
+                    {/* Actions */}
+                    <div className="px-3 py-2">
+                      {!item.is_terminal && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setSelectedItem(item); }}
+                          className="rounded-md bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/20 transition-colors"
+                        >
+                          Change Status
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {loadingMore && (
+              <div className="flex items-center justify-center py-3">
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground mr-2" />
+                <span className="text-xs text-muted-foreground">Loading more items…</span>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">
-            Page {page} of {totalPages} ({totalCount} items)
-          </p>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page <= 1}
-              className="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-sm disabled:opacity-50"
-            >
-              <ChevronLeft className="h-4 w-4" /> Previous
-            </button>
-            <button
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page >= totalPages}
-              className="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-sm disabled:opacity-50"
-            >
-              Next <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
+      {/* Footer */}
+      {items.length > 0 && (
+        <div className="text-center text-xs text-muted-foreground">
+          {hasMore
+            ? `Showing ${items.length} of ${totalCount} items — scroll for more`
+            : `All ${items.length} items displayed`}
         </div>
       )}
 
@@ -600,7 +654,7 @@ export default function ItemListPage() {
           onClose={() => setSelectedItem(null)}
           onSuccess={() => {
             setSelectedItem(null);
-            fetchItems();
+            fetchItems(null, false);
           }}
           userRole={userRole}
         />
@@ -614,7 +668,7 @@ export default function ItemListPage() {
           onSuccess={() => {
             setShowBulkModal(false);
             setSelectedIds(new Set());
-            fetchItems();
+            fetchItems(null, false);
           }}
           userRole={userRole}
         />

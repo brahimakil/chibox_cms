@@ -30,12 +30,13 @@ import {
   Eye,
   Ban,
 } from "lucide-react";
-import { resolveImageUrl } from "@/lib/image-url";
+import { resolveImageUrl, thumbnailUrl } from "@/lib/image-url";
 import {
   SHIPPING_STATUS,
   PAYMENT_TYPES,
   WORKFLOW_STATUS,
 } from "@/lib/order-constants";
+import { toast } from "sonner";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -123,7 +124,7 @@ export default function OrderDetailPage({
   const [refundOpen, setRefundOpen] = useState(false);
   const [refundProcessing, setRefundProcessing] = useState(false);
   const [notesSaving, setNotesSaving] = useState(false);
-  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
 
   // Shipping form
   const [shippingForm, setShippingForm] = useState({
@@ -179,6 +180,34 @@ export default function OrderDetailPage({
     const form = itemForms[itemId];
     if (!form) return;
     setItemSaving(itemId);
+
+    // Optimistic update — instantly apply form values to local state
+    const prevData = data;
+    const ws = WORKFLOW_STATUS[form.workflow_status_key];
+    setData((prev: any) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        products: prev.products.map((p: any) =>
+          p.id === itemId
+            ? {
+                ...p,
+                workflow_status_key: form.workflow_status_key,
+                workflow_status_label: ws?.label || form.workflow_status_key,
+                workflow_status_color: ws?.color || "gray",
+                tracking_number: form.tracking_number,
+                shipping_method: form.shipping_method,
+                quantity: Number(form.quantity),
+                ...(form.shipping_method === "air"
+                  ? { by_air: Number(form.shipping) }
+                  : { by_sea: Number(form.shipping) }),
+              }
+            : p
+        ),
+      };
+    });
+    setEditingItem(null);
+
     try {
       const res = await fetch(`/api/orders/${id}/items`, {
         method: "PUT",
@@ -195,9 +224,11 @@ export default function OrderDetailPage({
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed");
       showToast("Item updated successfully", "success");
-      setEditingItem(null);
-      await fetchOrder();
+      // Background refresh for server-derived values (totals, order status, etc.)
+      fetchOrder();
     } catch (err: any) {
+      // Revert on failure
+      setData(prevData);
       showToast(err.message, "error");
     } finally {
       setItemSaving(null);
@@ -205,8 +236,8 @@ export default function OrderDetailPage({
   };
 
   const showToast = (message: string, type: "success" | "error") => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 4000);
+    if (type === "success") toast.success(message);
+    else toast.error(message);
   };
 
   const fetchOrder = useCallback(async () => {
@@ -318,10 +349,7 @@ export default function OrderDetailPage({
 
   // ── Handle shipping status change (0 ↔ 1) ────────────────────────
   const handleShippingStatusChange = async (newShippingStatus: number) => {
-    const label = newShippingStatus === 1
-      ? "Confirm shipping price and notify user? This enables the Pay button in the app."
-      : "Reset shipping status to Pending Review?";
-    if (!confirm(label)) return;
+
     setShippingStatusChanging(true);
     try {
       const res = await fetch(`/api/orders/${id}/shipping`, {
@@ -346,10 +374,6 @@ export default function OrderDetailPage({
   // ── Handle is_paid toggle ─────────────────────────────────────────
   const handleIsPaidToggle = async () => {
     const newPaid = data?.order?.is_paid ? 0 : 1;
-    const label = newPaid === 1
-      ? "Mark products as PAID?"
-      : "Mark products as UNPAID?";
-    if (!confirm(label)) return;
     setIsPaidToggling(true);
     try {
       const res = await fetch(`/api/orders/${id}`, {
@@ -369,7 +393,7 @@ export default function OrderDetailPage({
 
   // ── Handle refund ─────────────────────────────────────────────────
   const handleRefund = async () => {
-    if (!confirm("Process this refund? This action cannot be undone.")) return;
+
     setRefundProcessing(true);
     try {
       const res = await fetch(`/api/orders/${id}/refund`, {
@@ -414,7 +438,6 @@ export default function OrderDetailPage({
   // ── Generate invoice ──────────────────────────────────────────────
   const handleGenerateInvoice = async (type: "product" | "shipping") => {
     const label = type === "product" ? "Product" : "Shipping";
-    if (!confirm(`Generate a ${label} invoice for this order?`)) return;
     setInvoiceGenerating(true);
     try {
       const res = await fetch(`/api/orders/${id}/invoices`, {
@@ -435,8 +458,7 @@ export default function OrderDetailPage({
 
   // ── Update invoice status ─────────────────────────────────────────
   const handleInvoiceStatusChange = async (invoiceId: number, newStatus: string) => {
-    const label = newStatus === "void" ? "Void this invoice? This cannot be undone." : `Mark invoice as "${newStatus}"?`;
-    if (!confirm(label)) return;
+
     setInvoiceUpdating(invoiceId);
     try {
       const res = await fetch(`/api/invoices/${invoiceId}`, {
@@ -484,25 +506,23 @@ export default function OrderDetailPage({
   // Lebanon warehouse has read-only access — no editing allowed
   const canEdit = userRole !== "lebanon_warehouse";
 
+  // Group item statuses by label for the breakdown display
+  const statusGroups: { label: string; count: number; color: string }[] = [];
+  {
+    const map: Record<string, { count: number; color: string }> = {};
+    for (const p of products) {
+      const key = p.status_label || "Unknown";
+      if (!map[key]) map[key] = { count: 0, color: p.status_color || "gray" };
+      map[key].count++;
+    }
+    for (const [label, { count, color }] of Object.entries(map)) {
+      statusGroups.push({ label, count, color });
+    }
+  }
+
   return (
     <div className="space-y-5">
-      {/* Toast */}
-      {toast && (
-        <div
-          className={`fixed top-4 right-4 z-50 flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-medium shadow-lg ${
-            toast.type === "success"
-              ? "bg-green-600 text-white"
-              : "bg-red-600 text-white"
-          }`}
-        >
-          {toast.type === "success" ? (
-            <CheckCircle className="h-4 w-4" />
-          ) : (
-            <XCircle className="h-4 w-4" />
-          )}
-          {toast.message}
-        </div>
-      )}
+
 
       {/* ── Section A: Header ────────────────────────────────────────── */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -544,28 +564,15 @@ export default function OrderDetailPage({
                 <span className="text-sm text-muted-foreground">Current:</span>
                 <StatusBadge label={order.status_label} color={order.status_color} large />
               </div>
-              <p className="text-xs text-muted-foreground">
-                This status is automatically derived from the items&apos; workflow statuses (lowest progress among active items).
-                To change item statuses individually, use the{" "}
-                <Link href="/dashboard/items" className="text-primary hover:underline font-medium">
-                  Item List
-                </Link>
-                {" "}page, or edit items below.
-              </p>
 
-              {/* Per-item status summary */}
+              {/* Per-item status summary — grouped by status */}
               <div className="border-t pt-3">
                 <p className="text-xs font-medium text-muted-foreground mb-2">Item Status Breakdown:</p>
                 <div className="flex flex-wrap gap-2">
-                  {products.map((p: any) => (
-                    <div key={p.id} className="flex items-center gap-1.5 rounded-md border px-2 py-1">
-                      <span className="text-xs text-muted-foreground truncate max-w-[120px]" title={p.product_name}>
-                        #{p.id}
-                      </span>
-                      <StatusBadge
-                        label={p.status_label}
-                        color={p.status_color}
-                      />
+                  {statusGroups.map(({ label, count, color }) => (
+                    <div key={label} className="flex items-center gap-1.5 rounded-md border px-2 py-1">
+                      <span className="text-xs font-medium text-muted-foreground">{count}×</span>
+                      <StatusBadge label={label} color={color} />
                     </div>
                   ))}
                 </div>
@@ -763,9 +770,9 @@ export default function OrderDetailPage({
                   <div className="flex gap-4">
                     {/* Product image */}
                     <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-muted">
-                      {resolveImageUrl(p.main_image) ? (
+                      {thumbnailUrl(p.main_image) ? (
                         <Image
-                          src={resolveImageUrl(p.main_image)!}
+                          src={thumbnailUrl(p.main_image)!}
                           alt={p.product_name}
                           fill
                           className="object-cover"
@@ -823,22 +830,16 @@ export default function OrderDetailPage({
                         </div>
                       )}
 
-                      {/* Store info */}
+                      {/* Store info → links to CMS product page */}
                       {p.store_info && (
                         <div className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
                           <Store className="h-3 w-3" />
-                          {p.store_info.shop_url ? (
-                            <a
-                              href={p.store_info.shop_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="hover:underline text-blue-600 dark:text-blue-400"
-                            >
-                              {p.store_info.shop_name || "1688 Store"}
-                            </a>
-                          ) : (
-                            <span>{p.store_info.shop_name || "1688 Store"}</span>
-                          )}
+                          <Link
+                            href={`/dashboard/products/${p.r_product_id}`}
+                            className="hover:underline text-blue-600 dark:text-blue-400"
+                          >
+                            {p.store_info.shop_name || "1688 Store"}
+                          </Link>
                         </div>
                       )}
                     </div>

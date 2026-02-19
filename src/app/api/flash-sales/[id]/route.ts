@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { invalidateHomeCache } from "@/lib/cache-invalidation";
 
 /**
  * GET /api/flash-sales/[id] — Get detail for a single flash sale with its products
@@ -44,6 +45,7 @@ export async function GET(
         color_2: s.color_2,
         color_3: s.color_3,
         slider_type: Number(s.slider_type),
+        start_time: s.start_time,
         end_time: s.end_time,
         display: Boolean(s.display),
         r_store_id: Number(s.r_store_id),
@@ -96,6 +98,8 @@ export async function PUT(
     if (body.color_3 !== undefined) updateData.color_3 = body.color_3;
     if (body.slider_type !== undefined)
       updateData.slider_type = body.slider_type;
+    if (body.start_time !== undefined)
+      updateData.start_time = body.start_time ? new Date(body.start_time) : null;
     if (body.end_time !== undefined)
       updateData.end_time = body.end_time
         ? new Date(body.end_time)
@@ -111,6 +115,9 @@ export async function PUT(
       where: { id: Number(id) },
       data: updateData,
     });
+
+    // Invalidate backend home cache so the change is instant
+    invalidateHomeCache();
 
     return NextResponse.json({ success: true, sale });
   } catch (error) {
@@ -147,6 +154,9 @@ export async function DELETE(
 
     // Delete the flash sale
     await prisma.flash_sales.delete({ where: { id: numId } });
+
+    // Invalidate backend home cache so the change is instant
+    invalidateHomeCache();
 
     return NextResponse.json({ success: true });
   } catch (error) {

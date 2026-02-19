@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { deriveOrderStatusFromItems } from "@/lib/rbac";
 
 /**
  * PUT /api/orders/[id]/items — Update individual order item
@@ -54,6 +55,13 @@ export async function PUT(
       }
       updateData.workflow_status_id = workflowStatus.id;
       updatedFields.push("workflow_status");
+
+      // Also update the legacy status field for terminal states
+      if (workflow_status_key === "cancelled") {
+        updateData.status = 5;
+      } else if (workflow_status_key === "refunded") {
+        updateData.status = 6;
+      }
     }
 
     if (tracking_number !== undefined) {
@@ -109,54 +117,30 @@ export async function PUT(
       data: updateData,
     });
 
-    // ── Auto-cascade: if all non-terminal items share same workflow status, update order ──
+    // ── Auto-derive order status from items (shared logic) ──
     let orderStatusUpdated = false;
     if (updatedFields.includes("workflow_status")) {
-      const terminalKeys = ["cancelled", "refunded"];
-      const allItems = await prisma.order_products.findMany({
-        where: { r_order_id: orderId },
-        select: { workflow_status_id: true },
-      });
-
-      // Fetch all workflow statuses for lookup
-      const allStatuses = await prisma.cms_order_item_statuses.findMany();
-      const statusMap = new Map(allStatuses.map((s) => [s.id, s]));
-
-      // Filter non-terminal items
-      const nonTerminalItems = allItems.filter((i) => {
-        const ws = statusMap.get(i.workflow_status_id ?? 0);
-        return ws && !terminalKeys.includes(ws.status_key);
-      });
-
-      // If all non-terminal items have the same workflow status, cascade to order
-      if (nonTerminalItems.length > 0) {
-        const allSame = nonTerminalItems.every(
-          (i) => i.workflow_status_id === nonTerminalItems[0].workflow_status_id
-        );
-        if (allSame) {
-          const ws = statusMap.get(nonTerminalItems[0].workflow_status_id ?? 0);
-          if (ws) {
-            await prisma.orders.update({
-              where: { id: orderId },
-              data: { updated_at: new Date() },
-            });
-            await prisma.order_tracking.create({
-              data: {
-                r_order_id: orderId,
-                r_status_id: ws.status_order,
-                track_date: new Date(),
-              },
-            });
-            orderStatusUpdated = true;
-          }
-        }
-      }
+      const result = await deriveOrderStatusFromItems(orderId);
+      orderStatusUpdated = result !== null;
     }
 
-    // ── Recalc order shipping_amount from items ──────────────────
-    if (updatedFields.includes("shipping") || updatedFields.includes("quantity")) {
+    // ── Recalc order shipping_amount from items (excluding cancelled) ─────
+    // Also recalc when workflow status changes (item may have been cancelled/uncancelled)
+    if (updatedFields.includes("shipping") || updatedFields.includes("quantity") || updatedFields.includes("shipping_method") || updatedFields.includes("workflow_status")) {
+      // Get cancelled status ID to exclude
+      const cancelledWs = await prisma.cms_order_item_statuses.findFirst({
+        where: { status_key: "cancelled" },
+      });
+      const cancelledWsId = cancelledWs?.id ?? -1;
+
       const allItems = await prisma.order_products.findMany({
-        where: { r_order_id: orderId },
+        where: {
+          r_order_id: orderId,
+          OR: [
+            { workflow_status_id: null },
+            { NOT: { workflow_status_id: cancelledWsId } },
+          ],
+        },
         select: { by_air: true, by_sea: true, shipping_method: true },
       });
       const totalShipping = allItems.reduce((sum, i) => {

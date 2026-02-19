@@ -1,14 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ShoppingCart,
   Download,
   Filter,
-  ChevronLeft,
-  ChevronRight,
   Search,
   X,
   Eye,
@@ -21,6 +19,7 @@ import {
   ChevronsUpDown,
 } from "lucide-react";
 import { SHIPPING_STATUS } from "@/lib/order-constants";
+import { useVirtualizer } from "@tanstack/react-virtual";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -96,8 +95,12 @@ export default function OrdersPage() {
   const router = useRouter();
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [stats, setStats] = useState<any>({});
-  const [pagination, setPagination] = useState({ page: 1, limit: 25, totalCount: 0, totalPages: 0 });
+  const [totalCount, setTotalCount] = useState(0);
+  const [nextCursor, setNextCursor] = useState<number | null>(null);
+  const [hasMore, setHasMore] = useState(true);
+  const loadingRef = useRef(false);
 
   // Filters
   const [search, setSearch] = useState("");
@@ -112,13 +115,19 @@ export default function OrdersPage() {
   const [fullyPaidFirst, setFullyPaidFirst] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
 
+  const PAGE_SIZE = 50;
+
   const fetchOrders = useCallback(
-    async (page = 1) => {
-      setLoading(true);
+    async (cursorId: number | null, append: boolean) => {
+      if (loadingRef.current) return;
+      loadingRef.current = true;
+      if (append) setLoadingMore(true);
+      else setLoading(true);
+
       try {
         const params = new URLSearchParams();
-        params.set("page", String(page));
-        params.set("limit", "25");
+        params.set("limit", String(PAGE_SIZE));
+        if (cursorId) params.set("cursor", String(cursorId));
         if (search) params.set("search", search);
         if (statusFilter !== "") params.set("status", statusFilter);
         if (isPaidFilter !== "") params.set("is_paid", isPaidFilter);
@@ -133,21 +142,62 @@ export default function OrdersPage() {
         const res = await fetch(`/api/orders?${params.toString()}`);
         if (!res.ok) throw new Error("Failed to fetch");
         const data = await res.json();
-        setOrders(data.orders);
-        setPagination(data.pagination);
-        setStats(data.stats);
+
+        if (append) {
+          setOrders((prev) => [...prev, ...data.orders]);
+        } else {
+          setOrders(data.orders);
+          setTotalCount(data.pagination.totalCount);
+          setStats(data.stats);
+        }
+        setNextCursor(data.nextCursor);
+        setHasMore(data.hasMore);
       } catch (err) {
         console.error(err);
       } finally {
         setLoading(false);
+        setLoadingMore(false);
+        loadingRef.current = false;
       }
     },
     [search, statusFilter, isPaidFilter, shippingStatusFilter, shippingMethodFilter, dateFrom, dateTo, sortBy, sortDir, fullyPaidFirst]
   );
 
   useEffect(() => {
-    fetchOrders(1);
+    setNextCursor(null);
+    setHasMore(true);
+    fetchOrders(null, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchOrders]);
+
+  const handleLoadMore = useCallback(() => {
+    if (!hasMore || loadingRef.current || !nextCursor) return;
+    fetchOrders(nextCursor, true);
+  }, [hasMore, nextCursor, fetchOrders]);
+
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  const ROW_HEIGHT = 56;
+  const rowVirtualizer = useVirtualizer({
+    count: orders.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 15,
+  });
+
+  // Infinite scroll – load more when near bottom
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = el;
+      if (scrollHeight - scrollTop - clientHeight < 300) {
+        handleLoadMore();
+      }
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [handleLoadMore]);
 
   const clearFilters = () => {
     setSearch("");
@@ -397,103 +447,131 @@ export default function OrdersPage() {
           </div>
         ) : (
           <>
-            {/* Desktop Table */}
-            <div className="hidden lg:block overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b bg-muted/50">
-                    <th
-                      className="px-4 py-3 text-left font-medium cursor-pointer select-none hover:bg-muted/80"
-                      onClick={() => handleSort("id")}
-                    >
-                      <span className="flex items-center gap-1">
-                        Order #
-                        {sortBy === "id" ? <ArrowUpDown className="h-3 w-3" /> : <ChevronsUpDown className="h-3 w-3 opacity-30" />}
-                      </span>
-                    </th>
-                    <th className="px-4 py-3 text-left font-medium">Customer</th>
-                    <th className="px-4 py-3 text-center font-medium">Items</th>
-                    <th
-                      className="px-4 py-3 text-right font-medium cursor-pointer select-none hover:bg-muted/80"
-                      onClick={() => handleSort("total")}
-                    >
-                      <span className="flex items-center justify-end gap-1">
-                        Total
-                        {sortBy === "total" ? <ArrowUpDown className="h-3 w-3" /> : <ChevronsUpDown className="h-3 w-3 opacity-30" />}
-                      </span>
-                    </th>
-                    <th className="px-4 py-3 text-center font-medium">Product</th>
-                    <th className="px-4 py-3 text-center font-medium">Shipping</th>
-                    <th className="px-4 py-3 text-center font-medium">Status</th>
-                    <th
-                      className="px-4 py-3 text-left font-medium cursor-pointer select-none hover:bg-muted/80"
-                      onClick={() => handleSort("created_at")}
-                    >
-                      <span className="flex items-center gap-1">
-                        Created
-                        {sortBy === "created_at" ? <ArrowUpDown className="h-3 w-3" /> : <ChevronsUpDown className="h-3 w-3 opacity-30" />}
-                      </span>
-                    </th>
-                    <th className="px-4 py-3 text-center font-medium">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {orders.map((o: any) => (
-                    <tr key={o.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => router.push(`/dashboard/orders/${o.id}`)}>
-                      <td className="px-4 py-3">
-                        <Link href={`/dashboard/orders/${o.id}`} className="font-medium text-primary hover:underline">
-                          #{o.id}
-                        </Link>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="font-medium">{o.customer_name}</div>
-                        <div className="text-xs text-muted-foreground">{o.country}{o.city ? `, ${o.city}` : ""}</div>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className="inline-flex items-center gap-1 text-muted-foreground">
-                          <Package className="h-3 w-3" /> {o.item_count}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-right font-medium">
-                        ${Number(o.total).toFixed(2)}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        {o.is_paid ? (
-                          <StatusBadge label="Paid" color="green" />
-                        ) : (
-                          <StatusBadge label="Unpaid" color="red" />
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <div className="flex flex-col items-center gap-1">
-                          <StatusBadge label={o.shipping_status_label} color={o.shipping_status_color} />
-                          {o.shipping_method && (
-                            <span className="text-[10px] text-muted-foreground uppercase">
-                              {o.shipping_method === "air" ? "✈️" : "🚢"} {o.shipping_method}
-                            </span>
+            {/* Desktop Table – Fixed header, scrollable body (matches products/categories pattern) */}
+            <div className="hidden lg:block rounded-lg border overflow-hidden">
+              {/* Header row – stays fixed */}
+              <div
+                className="grid items-center border-b bg-muted/80 text-sm font-medium"
+                style={{ gridTemplateColumns: "72px minmax(130px,1.5fr) 50px 85px 80px 105px 90px 90px 80px" }}
+              >
+                <div
+                  className="px-3 py-3 cursor-pointer select-none hover:bg-muted/80"
+                  onClick={() => handleSort("id")}
+                >
+                  <span className="flex items-center gap-1">
+                    Order #
+                    {sortBy === "id" ? <ArrowUpDown className="h-3 w-3" /> : <ChevronsUpDown className="h-3 w-3 opacity-30" />}
+                  </span>
+                </div>
+                <div className="px-3 py-3">Customer</div>
+                <div className="px-3 py-3 text-center">Items</div>
+                <div
+                  className="px-3 py-3 text-right cursor-pointer select-none hover:bg-muted/80"
+                  onClick={() => handleSort("total")}
+                >
+                  <span className="flex items-center justify-end gap-1">
+                    Total
+                    {sortBy === "total" ? <ArrowUpDown className="h-3 w-3" /> : <ChevronsUpDown className="h-3 w-3 opacity-30" />}
+                  </span>
+                </div>
+                <div className="px-3 py-3 text-center">Product</div>
+                <div className="px-3 py-3 text-center">Shipping</div>
+                <div className="px-3 py-3 text-center">Status</div>
+                <div
+                  className="px-3 py-3 cursor-pointer select-none hover:bg-muted/80"
+                  onClick={() => handleSort("created_at")}
+                >
+                  <span className="flex items-center gap-1">
+                    Created
+                    {sortBy === "created_at" ? <ArrowUpDown className="h-3 w-3" /> : <ChevronsUpDown className="h-3 w-3 opacity-30" />}
+                  </span>
+                </div>
+                <div className="px-3 py-3 text-center">Action</div>
+              </div>
+
+              {/* Virtualized scrollable body */}
+              <div
+                ref={scrollContainerRef}
+                className="overflow-auto"
+                style={{ height: "calc(100vh - 370px)", minHeight: "400px" }}
+              >
+                <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, width: "100%", position: "relative" }}>
+                  {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                    const o = orders[virtualRow.index];
+                    if (!o) return null;
+                    return (
+                      <div
+                        key={o.id}
+                        className="grid items-center border-b text-sm transition-colors hover:bg-muted/30 cursor-pointer absolute left-0 w-full"
+                        style={{
+                          gridTemplateColumns: "72px minmax(130px,1.5fr) 50px 85px 80px 105px 90px 90px 80px",
+                          height: `${virtualRow.size}px`,
+                          transform: `translateY(${virtualRow.start}px)`,
+                        }}
+                        onClick={() => router.push(`/dashboard/orders/${o.id}`)}
+                      >
+                        <div className="px-3 py-2">
+                          <Link href={`/dashboard/orders/${o.id}`} className="font-medium text-primary hover:underline">
+                            #{o.id}
+                          </Link>
+                        </div>
+                        <div className="px-3 py-2">
+                          <div className="font-medium truncate">{o.customer_name}</div>
+                          <div className="text-xs text-muted-foreground truncate">{o.country}{o.city ? `, ${o.city}` : ""}</div>
+                        </div>
+                        <div className="px-3 py-2 text-center">
+                          <span className="inline-flex items-center gap-1 text-muted-foreground">
+                            <Package className="h-3 w-3" /> {o.item_count}
+                          </span>
+                        </div>
+                        <div className="px-3 py-2 text-right font-medium">
+                          ${Number(o.total).toFixed(2)}
+                        </div>
+                        <div className="px-3 py-2 text-center">
+                          {o.is_paid ? (
+                            <StatusBadge label="Paid" color="green" />
+                          ) : (
+                            <StatusBadge label="Unpaid" color="red" />
                           )}
                         </div>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <StatusBadge label={o.status_label} color={o.status_color} />
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className="text-xs text-muted-foreground">
-                          {new Date(o.created_at).toLocaleDateString()}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <Link
-                          href={`/dashboard/orders/${o.id}`}
-                          className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-medium hover:bg-accent transition-colors"
-                        >
-                          <Eye className="h-3 w-3" /> View
-                        </Link>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                        <div className="px-3 py-2 text-center">
+                          <div className="flex flex-col items-center gap-1">
+                            <StatusBadge label={o.shipping_status_label} color={o.shipping_status_color} />
+                            {o.shipping_method && (
+                              <span className="text-[10px] text-muted-foreground uppercase">
+                                {o.shipping_method === "air" ? "✈️" : "🚢"} {o.shipping_method}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="px-3 py-2 text-center">
+                          <StatusBadge label={o.status_label} color={o.status_color} />
+                        </div>
+                        <div className="px-3 py-2 text-center">
+                          <span className="text-xs text-muted-foreground">
+                            {new Date(o.created_at).toLocaleDateString()}
+                          </span>
+                        </div>
+                        <div className="px-3 py-2 text-center">
+                          <Link
+                            href={`/dashboard/orders/${o.id}`}
+                            className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-medium hover:bg-accent transition-colors"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <Eye className="h-3 w-3" /> View
+                          </Link>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {loadingMore && (
+                  <div className="flex items-center justify-center py-3">
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground mr-2" />
+                    <span className="text-xs text-muted-foreground">Loading more orders…</span>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Mobile Cards */}
@@ -532,35 +610,12 @@ export default function OrdersPage() {
               ))}
             </div>
 
-            {/* Pagination */}
-            {pagination.totalPages > 1 && (
-              <div className="flex items-center justify-between border-t px-4 py-3">
-                <p className="text-sm text-muted-foreground">
-                  Showing {(pagination.page - 1) * pagination.limit + 1}–
-                  {Math.min(pagination.page * pagination.limit, pagination.totalCount)} of{" "}
-                  {pagination.totalCount}
-                </p>
-                <div className="flex items-center gap-2">
-                  <button
-                    disabled={pagination.page <= 1}
-                    onClick={() => fetchOrders(pagination.page - 1)}
-                    className="inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-sm disabled:opacity-40"
-                  >
-                    <ChevronLeft className="h-4 w-4" /> Prev
-                  </button>
-                  <span className="text-sm font-medium">
-                    {pagination.page} / {pagination.totalPages}
-                  </span>
-                  <button
-                    disabled={pagination.page >= pagination.totalPages}
-                    onClick={() => fetchOrders(pagination.page + 1)}
-                    className="inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-sm disabled:opacity-40"
-                  >
-                    Next <ChevronRight className="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
-            )}
+            {/* Footer */}
+            <div className="border-t px-4 py-2 text-center text-xs text-muted-foreground">
+              {hasMore
+                ? `Showing ${orders.length} of ${totalCount} orders — scroll for more`
+                : `All ${orders.length} orders displayed`}
+            </div>
           </>
         )}
       </div>

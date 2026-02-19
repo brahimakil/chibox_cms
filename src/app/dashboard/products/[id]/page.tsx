@@ -34,6 +34,7 @@ import { ShippingEstimation } from "@/components/products/shipping-estimation";
 import { SpecificationsTable } from "@/components/products/specifications-table";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { resolveImageUrl } from "@/lib/image-url";
+import { toast } from "sonner";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -224,7 +225,7 @@ export default function ProductDetailPage({
       await fetchProduct();
     } catch (err: any) {
       console.error("Refresh failed:", err);
-      alert(`Refresh failed: ${err.message}`);
+      toast.error(`Refresh failed: ${err.message}`);
     } finally {
       setRefreshing(false);
     }

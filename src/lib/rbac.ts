@@ -189,7 +189,7 @@ export async function deriveOrderStatusFromItems(orderId: number) {
   // Not all terminal — find the lowest non-terminal item workflow status
   const nonTerminalItems = items.filter((i) => {
     const s = i.workflow_status_id ? statusMap.get(i.workflow_status_id) : null;
-    return s && s.is_terminal === 0;
+    return s && !s.is_terminal;
   });
 
   if (!nonTerminalItems.length) return null;

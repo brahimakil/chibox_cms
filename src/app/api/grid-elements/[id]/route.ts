@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { invalidateHomeCache } from "@/lib/cache-invalidation";
 
 /**
  * PUT /api/grid-elements/[id] — Update a grid element
@@ -34,6 +35,9 @@ export async function PUT(
       data: updateData,
     });
 
+    // Invalidate backend home cache so the change is instant
+    invalidateHomeCache();
+
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Error updating grid element:", error);
@@ -54,6 +58,10 @@ export async function DELETE(
   try {
     const { id } = await params;
     await prisma.grid_elements.delete({ where: { id: Number(id) } });
+
+    // Invalidate backend home cache so the change is instant
+    invalidateHomeCache();
+
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Error deleting grid element:", error);

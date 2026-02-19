@@ -101,22 +101,38 @@ export async function GET(
       variationsByOp.set(v.r_order_product_id, arr);
     }
 
-    // ── Fetch 1688 store info for each product ─────────────────────
+    // ── Fetch 1688 store info + English title for each product ───
     const productIds = [...new Set(orderProducts.map((op) => op.r_product_id))];
-    const storeInfos = productIds.length
-      ? await prisma.product_1688_info.findMany({
-          where: { product_id: { in: productIds } },
-          select: {
-            product_id: true,
-            shop_name: true,
-            shop_url: true,
-            seller_login_id: true,
-            seller_user_id: true,
-          },
-        })
-      : [];
+    const [storeInfos, productRecords] = await Promise.all([
+      productIds.length
+        ? prisma.product_1688_info.findMany({
+            where: { product_id: { in: productIds } },
+            select: {
+              product_id: true,
+              shop_name: true,
+              shop_url: true,
+              seller_login_id: true,
+              seller_user_id: true,
+              title_en: true,
+            },
+          })
+        : [],
+      productIds.length
+        ? prisma.product.findMany({
+            where: { id: { in: productIds } },
+            select: {
+              id: true,
+              display_name: true,
+              product_name: true,
+            },
+          })
+        : [],
+    ]);
     const storeInfoMap = new Map(
       storeInfos.map((si) => [si.product_id, si])
+    );
+    const productNameMap = new Map(
+      productRecords.map((p) => [p.id, p])
     );
 
     // ── Fetch workflow statuses for items ─────────────────────────
@@ -131,8 +147,17 @@ export async function GET(
       const statusKey = ws?.status_key || "processing";
       const statusLabel = ws?.status_label || "Processing";
 
+      // Prefer English name: display_name > title_en > order snapshot
+      const storeInfo = storeInfoMap.get(op.r_product_id);
+      const productRec = productNameMap.get(op.r_product_id);
+      const englishName =
+        productRec?.display_name ||
+        (storeInfo as any)?.title_en ||
+        op.product_name;
+
       return {
         ...op,
+        product_name: englishName,
         tax_amount: op.tax_amount ? Number(op.tax_amount) : 0,
         by_air: op.by_air ? Number(op.by_air) : null,
         by_sea: op.by_sea ? Number(op.by_sea) : null,
@@ -239,10 +264,27 @@ export async function GET(
       }
     }
 
+    // ── When shipping is paid, lock displayed amount to the invoice ──
+    let shippingAmountDisplay = order.shipping_amount;
+    if (order.shipping_status === 2) {
+      const shippingInvoice = await prisma.invoices.findFirst({
+        where: {
+          order_id: orderId,
+          type: "shipping",
+          status: { not: "void" },
+        },
+        select: { total: true },
+      });
+      if (shippingInvoice) {
+        shippingAmountDisplay = Number(shippingInvoice.total);
+      }
+    }
+
     // ── Build response ─────────────────────────────────────────────
     return NextResponse.json({
       order: {
         ...order,
+        shipping_amount: shippingAmountDisplay,
         refund_amount: order.refund_amount ? Number(order.refund_amount) : null,
         status_label: orderStatusLabel,
         status_color: STATUS_COLORS[orderStatusKey] || "gray",

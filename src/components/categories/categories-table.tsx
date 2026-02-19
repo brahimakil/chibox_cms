@@ -11,7 +11,7 @@ import {
 import Link from "next/link";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ImageLightbox } from "@/components/products/image-lightbox";
-import { resolveImageUrl } from "@/lib/image-url";
+import { resolveImageUrl, thumbnailUrl } from "@/lib/image-url";
 
 interface Category {
   id: number;
@@ -189,7 +189,7 @@ export function CategoriesTable({
                         className="block overflow-hidden rounded-md border hover:ring-2 hover:ring-ring cursor-pointer"
                       >
                         <img
-                          src={resolveImageUrl(c.main_image) || undefined}
+                          src={thumbnailUrl(c.main_image) || undefined}
                           alt=""
                           className="h-11 w-11 object-cover"
                           onError={(e) => {

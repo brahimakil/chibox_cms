@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { StockBadge } from "./product-status-badge";
 import { ImageLightbox } from "./image-lightbox";
-import { resolveImageUrl } from "@/lib/image-url";
+import { resolveImageUrl, thumbnailUrl } from "@/lib/image-url";
 
 interface Product {
   id: number;
@@ -184,7 +184,7 @@ export function ProductsTable({
                         className="block overflow-hidden rounded-md border hover:ring-2 hover:ring-ring"
                       >
                         <img
-                          src={resolveImageUrl(p.main_image) || ""}
+                          src={thumbnailUrl(p.main_image) || ""}
                           alt=""
                           className="h-11 w-11 object-cover"
                           loading="lazy"

@@ -249,6 +249,7 @@ export async function GET(request: NextRequest) {
         original_name: p.original_name,
         main_image: p.main_image,
         origin_price: originPrice,
+        product_price: p.product_price ? Number(p.product_price) : originPrice,
         category_name: p.category_id
           ? categoryMap.get(p.category_id) || null
           : null,

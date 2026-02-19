@@ -6,11 +6,11 @@ import {
   Loader2,
   Pencil,
   Trash2,
-  MoreHorizontal,
   Zap,
   Eye,
   EyeOff,
   Timer,
+  Calendar,
   Info,
   Package,
   Search,
@@ -38,14 +38,9 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
-import { resolveImageUrl } from "@/lib/image-url";
+import { resolveImageUrl, thumbnailUrl } from "@/lib/image-url";
+import { toast } from "sonner";
 
 /* ─── Types ─── */
 
@@ -57,6 +52,7 @@ interface FlashSale {
   color_2: string;
   color_3: string;
   slider_type: number;
+  start_time: string | null;
   end_time: string | null;
   display: boolean;
   r_store_id: number;
@@ -83,6 +79,7 @@ interface FlashSaleFormData {
   color_2: string;
   color_3: string;
   slider_type: number;
+  start_time: string;
   end_time: string;
   display: boolean;
   discount: number;
@@ -94,6 +91,7 @@ const EMPTY_FORM: FlashSaleFormData = {
   color_2: "#3c5d9f",
   color_3: "#208d4f",
   slider_type: 1,
+  start_time: "",
   end_time: "",
   display: true,
   discount: 0,
@@ -163,6 +161,7 @@ function FlashSaleCard({
   onManageProducts: () => void;
 }) {
   const { remaining, isExpired } = useCountdown(sale.end_time);
+  const isScheduled = sale.start_time && new Date(sale.start_time) > new Date();
 
   return (
     <div className="group overflow-hidden rounded-xl border bg-card shadow-sm transition-shadow hover:shadow-md">
@@ -185,6 +184,8 @@ function FlashSaleCard({
                 variant={
                   !sale.display
                     ? "outline"
+                    : isScheduled
+                    ? "secondary"
                     : isExpired
                     ? "destructive"
                     : "success"
@@ -193,6 +194,8 @@ function FlashSaleCard({
               >
                 {!sale.display
                   ? "Hidden"
+                  : isScheduled
+                  ? "Scheduled"
                   : isExpired
                   ? "Expired"
                   : "Active"}
@@ -201,6 +204,12 @@ function FlashSaleCard({
 
             {/* Timer */}
             <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+              {sale.start_time && (
+                <span className="flex items-center gap-1">
+                  <Calendar className="h-3 w-3" />
+                  Starts: {new Date(sale.start_time).toLocaleString()}
+                </span>
+              )}
               <span className="flex items-center gap-1">
                 <Timer className="h-3 w-3" />
                 {remaining}
@@ -230,44 +239,38 @@ function FlashSaleCard({
             </div>
           </div>
 
-          {/* Actions */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8">
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={onEdit}>
-                <Pencil className="mr-2 h-4 w-4" />
-                Edit
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={onManageProducts}>
-                <Package className="mr-2 h-4 w-4" />
-                Manage Products
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={onToggle}>
-                {sale.display ? (
-                  <>
-                    <EyeOff className="mr-2 h-4 w-4" />
-                    Hide
-                  </>
-                ) : (
-                  <>
-                    <Eye className="mr-2 h-4 w-4" />
-                    Show
-                  </>
-                )}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={onDelete}
-                className="text-destructive focus:text-destructive"
-              >
-                <Trash2 className="mr-2 h-4 w-4" />
-                Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {/* Action buttons – inline instead of dropdown */}
+          <div className="flex flex-col gap-1.5">
+            <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs" onClick={onEdit}>
+              <Pencil className="h-3 w-3" />
+              Edit
+            </Button>
+            <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs" onClick={onManageProducts}>
+              <Package className="h-3 w-3" />
+              Products
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1.5 text-xs"
+              onClick={onToggle}
+            >
+              {sale.display ? (
+                <><EyeOff className="h-3 w-3" />Hide</>
+              ) : (
+                <><Eye className="h-3 w-3" />Show</>
+              )}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1.5 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+              onClick={onDelete}
+            >
+              <Trash2 className="h-3 w-3" />
+              Delete
+            </Button>
+          </div>
         </div>
       </div>
     </div>
@@ -334,6 +337,9 @@ export default function FlashSalesPage() {
       color_2: sale.color_2 || "#3c5d9f",
       color_3: sale.color_3 || "#208d4f",
       slider_type: sale.slider_type || 1,
+      start_time: sale.start_time
+        ? new Date(sale.start_time).toISOString().slice(0, 16)
+        : "",
       end_time: sale.end_time
         ? new Date(sale.end_time).toISOString().slice(0, 16)
         : "",
@@ -352,26 +358,36 @@ export default function FlashSalesPage() {
         .slice(0, 16);
       const payload = {
         ...formData,
+        start_time: formData.start_time || null,
         end_time: formData.end_time || defaultEnd,
       };
 
       if (editingSale) {
-        await fetch(`/api/flash-sales/${editingSale.id}`, {
+        // Optimistic: update local state immediately
+        setSales((prev) =>
+          prev.map((s) => s.id === editingSale.id ? { ...s, ...payload, display: formData.display } : s)
+        );
+        const res = await fetch(`/api/flash-sales/${editingSale.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
+        if (!res.ok) throw new Error("Failed to update");
+        toast.success("Flash sale updated");
       } else {
-        await fetch("/api/flash-sales", {
+        const res = await fetch("/api/flash-sales", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
+        if (!res.ok) throw new Error("Failed to create");
+        toast.success("Flash sale created");
       }
       setDialogOpen(false);
       fetchSales();
     } catch (err) {
-      console.error("Failed to save flash sale:", err);
+      toast.error("Failed to save flash sale");
+      fetchSales(); // revert optimistic
     } finally {
       setSaving(false);
     }
@@ -379,25 +395,36 @@ export default function FlashSalesPage() {
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
+    const targetId = deleteTarget.id;
+    // Optimistic: remove from UI immediately
+    setSales((prev) => prev.filter((s) => s.id !== targetId));
+    setDeleteTarget(null);
     try {
-      await fetch(`/api/flash-sales/${deleteTarget.id}`, { method: "DELETE" });
-      setDeleteTarget(null);
-      fetchSales();
+      const res = await fetch(`/api/flash-sales/${targetId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed");
+      toast.success("Flash sale deleted");
     } catch (err) {
-      console.error("Failed to delete flash sale:", err);
+      toast.error("Failed to delete flash sale");
+      fetchSales(); // revert
     }
   };
 
   const toggleDisplay = async (sale: FlashSale) => {
+    // Optimistic: toggle in UI immediately
+    setSales((prev) =>
+      prev.map((s) => s.id === sale.id ? { ...s, display: !s.display } : s)
+    );
     try {
-      await fetch(`/api/flash-sales/${sale.id}`, {
+      const res = await fetch(`/api/flash-sales/${sale.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ display: !sale.display }),
       });
-      fetchSales();
+      if (!res.ok) throw new Error("Failed");
+      toast.success(sale.display ? "Flash sale hidden" : "Flash sale shown");
     } catch (err) {
-      console.error("Failed to toggle flash sale:", err);
+      toast.error("Failed to toggle visibility");
+      fetchSales(); // revert
     }
   };
 
@@ -435,20 +462,33 @@ export default function FlashSalesPage() {
           `/api/products?search=${encodeURIComponent(query)}&pageSize=10`
         );
         const data = await res.json();
+        // Pricing info for CNY→USD conversion
+        const pricing = data.pricing as
+          | { markupPercent: number; exchangeRate: number }
+          | undefined;
+        const rate = pricing ? Number(pricing.exchangeRate) : 0.14;
+        const markup = pricing ? 1 + Number(pricing.markupPercent) / 100 : 1.15;
         // Filter out already-added products and map field names
         const existingIds = new Set(saleProducts.map((p) => p.id));
         setSearchResults(
           (data.products || [])
             .filter((p: Record<string, unknown>) => !existingIds.has(p.id as number))
-            .map((p: Record<string, unknown>) => ({
-              id: p.id as number,
-              title: (p.display_name || p.product_name || `#${p.id}`) as string,
-              price: Number(p.origin_price) || 0,
-              discount_price: null,
-              main_image: (p.main_image as string) || null,
-              quantity: 0,
-              status: p.product_status as number,
-            }))
+            .map((p: Record<string, unknown>) => {
+              const rawPrice =
+                Number(p.product_price) || Number(p.origin_price) || 0;
+              // Convert to USD (most products are CNY)
+              const usdPrice =
+                Math.round(rawPrice * rate * markup * 100) / 100;
+              return {
+                id: p.id as number,
+                title: (p.display_name || p.product_name || `#${p.id}`) as string,
+                price: usdPrice,
+                discount_price: null,
+                main_image: (p.main_image as string) || null,
+                quantity: 0,
+                status: p.product_status as number,
+              };
+            })
         );
       } catch (err) {
         console.error("Search failed:", err);
@@ -606,8 +646,22 @@ export default function FlashSalesPage() {
               />
             </div>
 
-            {/* End time + Discount */}
+            {/* Start & End time */}
             <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="fs-start">Start Time</Label>
+                <Input
+                  id="fs-start"
+                  type="datetime-local"
+                  value={formData.start_time}
+                  onChange={(e) =>
+                    setFormData({ ...formData, start_time: e.target.value })
+                  }
+                />
+                <p className="text-xs text-muted-foreground">
+                  Optional. Leave empty to start immediately.
+                </p>
+              </div>
               <div className="grid gap-2">
                 <Label htmlFor="fs-end">End Time <span className="text-destructive">*</span></Label>
                 <Input
@@ -622,6 +676,10 @@ export default function FlashSalesPage() {
                   Required for mobile visibility. Defaults to 1 year if empty.
                 </p>
               </div>
+            </div>
+
+            {/* Discount */}
+            <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label htmlFor="fs-discount">Discount (%)</Label>
                 <Input
@@ -773,7 +831,7 @@ export default function FlashSalesPage() {
                         {p.main_image ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
-                            src={resolveImageUrl(p.main_image) || ""}
+                            src={thumbnailUrl(p.main_image) || ""}
                             alt=""
                             className="h-full w-full object-cover"
                           />
@@ -846,7 +904,7 @@ export default function FlashSalesPage() {
                         {p.main_image ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
-                            src={resolveImageUrl(p.main_image) || ""}
+                            src={thumbnailUrl(p.main_image) || ""}
                             alt=""
                             className="h-full w-full object-cover"
                           />

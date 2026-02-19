@@ -8,7 +8,6 @@ import {
   Pencil,
   Trash2,
   Info,
-  MoreHorizontal,
   Eye,
   Upload,
   Search,
@@ -31,12 +30,6 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -45,6 +38,7 @@ import {
 } from "@/components/ui/select";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { resolveImageUrl } from "@/lib/image-url";
+import { toast } from "sonner";
 
 /* ─── Types ─── */
 
@@ -541,17 +535,21 @@ export default function BannersPage() {
       };
 
       if (editingGrid) {
-        await fetch(`/api/grid-elements/${editingGrid.id}`, {
+        const res = await fetch(`/api/grid-elements/${editingGrid.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
+        if (!res.ok) throw new Error("Failed to update");
+        toast.success("Banner updated");
       } else {
-        await fetch("/api/grid-elements", {
+        const res = await fetch("/api/grid-elements", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
+        if (!res.ok) throw new Error("Failed to create");
+        toast.success("Banner created");
       }
 
       // Revoke blob URL
@@ -561,7 +559,7 @@ export default function BannersPage() {
       setGridDialogOpen(false);
       fetchBanners();
     } catch (err) {
-      console.error("Failed to save grid element:", err);
+      toast.error("Failed to save banner");
     } finally {
       setSaving(false);
     }
@@ -570,14 +568,19 @@ export default function BannersPage() {
   /* ─── Delete ─── */
   const handleDelete = async () => {
     if (!deleteTarget) return;
+    const targetId = deleteTarget.id;
+    // Optimistic: remove from UI immediately
+    setGridElements((prev) => prev.filter((g) => g.id !== targetId));
+    setDeleteTarget(null);
     try {
-      await fetch(`/api/grid-elements/${deleteTarget.id}`, {
+      const res = await fetch(`/api/grid-elements/${targetId}`, {
         method: "DELETE",
       });
-      setDeleteTarget(null);
-      fetchBanners();
+      if (!res.ok) throw new Error("Failed");
+      toast.success("Banner deleted");
     } catch (err) {
-      console.error("Failed to delete:", err);
+      toast.error("Failed to delete banner");
+      fetchBanners(); // revert
     }
   };
 
@@ -725,37 +728,26 @@ export default function BannersPage() {
                       </div>
                     </div>
 
-                    <div className="flex items-center pr-4">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                          >
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => openEditGrid(el)}>
-                            <Pencil className="mr-2 h-4 w-4" />
-                            Edit
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() =>
-                              setDeleteTarget({
-                                type: "grid",
-                                id: el.id,
-                                name: `Banner #${el.id}`,
-                              })
-                            }
-                            className="text-destructive focus:text-destructive"
-                          >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                    <div className="flex items-center gap-2 pr-4">
+                      <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs" onClick={() => openEditGrid(el)}>
+                        <Pencil className="h-3 w-3" />
+                        Edit
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 gap-1.5 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                        onClick={() =>
+                          setDeleteTarget({
+                            type: "grid",
+                            id: el.id,
+                            name: `Banner #${el.id}`,
+                          })
+                        }
+                      >
+                        <Trash2 className="h-3 w-3" />
+                        Delete
+                      </Button>
                     </div>
                   </div>
                 </div>
