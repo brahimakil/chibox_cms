@@ -444,21 +444,23 @@ function OverviewTab({ stats, loading }: Readonly<{ stats: Stats | null; loading
       {stats.daily_trend.length > 0 && (
         <div className="rounded-lg border p-4">
           <h3 className="mb-3 text-sm font-semibold">Daily Generations (Last 14 Days)</h3>
-          <div className="flex items-end gap-1" style={{ height: 120 }}>
+          <div className="flex items-end gap-1" style={{ height: 140 }}>
             {(() => {
               const maxCount = Math.max(...stats.daily_trend.map((d) => d.count), 1);
-              return stats.daily_trend.map((d, i) => {
-                const height = Math.max((d.count / maxCount) * 100, 2);
-                const dayLabel = new Date(d.day).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+              return stats.daily_trend.map((d) => {
+                const pct = Math.max((d.count / maxCount) * 100, 4);
+                const barHeight = Math.round((pct / 100) * 110);
+                const dayLabel = new Date(d.day + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
                 return (
                   <div
                     key={d.day}
-                    className="group relative flex flex-1 flex-col items-center"
+                    className="group relative flex flex-1 flex-col items-center justify-end"
+                    style={{ height: 140 }}
                     title={`${dayLabel}: ${d.count}`}
                   >
                     <div
                       className="w-full max-w-[32px] rounded-t bg-blue-500 transition-colors group-hover:bg-blue-600"
-                      style={{ height: `${height}%` }}
+                      style={{ height: barHeight }}
                     />
                     <span className="mt-1 text-[9px] text-muted-foreground">{dayLabel}</span>
                   </div>

@@ -89,7 +89,7 @@ export async function GET() {
         count: Number(r.cnt),
       })),
       daily_trend: dailyTrend.map((r: any) => ({
-        day: r.day,
+        day: r.day instanceof Date ? r.day.toISOString().split("T")[0] : String(r.day),
         count: Number(r.cnt),
       })),
     });
