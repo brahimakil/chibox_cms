@@ -1064,10 +1064,14 @@ export default function OrderDetailPage({
                     <div className="-mt-0.5">
                       <StatusBadge label={t.status_label} color={t.status_color} />
                       <p className="mt-0.5 text-xs text-muted-foreground">
-                        {new Date(t.track_date).toLocaleDateString("en-US", {
+                        {new Date(t.track_date).toLocaleString("en-US", {
                           year: "numeric",
                           month: "short",
                           day: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          timeZone: "UTC",
+                          timeZoneName: "short",
                         })}
                       </p>
                     </div>

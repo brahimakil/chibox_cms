@@ -126,10 +126,48 @@ function LinkSelector({
   const [catQuery, setCatQuery] = useState("");
   const [catResults, setCatResults] = useState<CategoryOption[]>([]);
   const [catLoading, setCatLoading] = useState(false);
+  const [resolvedCatName, setResolvedCatName] = useState<string | null>(null);
 
   const [prodQuery, setProdQuery] = useState("");
   const [prodResults, setProdResults] = useState<ProductOption[]>([]);
   const [prodLoading, setProdLoading] = useState(false);
+  const [resolvedProdName, setResolvedProdName] = useState<string | null>(null);
+
+  /* Resolve category name when linkValue is set (e.g. editing existing banner) */
+  useEffect(() => {
+    if (linkType !== "category" || !linkValue) { setResolvedCatName(null); return; }
+    // Don't re-fetch if we already resolved this ID
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/categories/tree");
+        const data = await res.json();
+        const cats: any[] = data.categories || [];
+        const found = cats.find((c: any) => String(c.id) === linkValue);
+        if (!cancelled && found) {
+          setResolvedCatName(found.category_name_en || found.category_name || `#${found.id}`);
+        }
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; };
+  }, [linkType, linkValue]);
+
+  /* Resolve product name when linkValue is set (e.g. editing existing banner) */
+  useEffect(() => {
+    if (linkType !== "product" || !linkValue) { setResolvedProdName(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/products/${linkValue}`);
+        const data = await res.json();
+        const p = data.product || data;
+        if (!cancelled && p) {
+          setResolvedProdName(p.display_name || p.product_name || p.title || `#${p.id}`);
+        }
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; };
+  }, [linkType, linkValue]);
 
   /* Category search */
   useEffect(() => {
@@ -249,7 +287,7 @@ function LinkSelector({
           {linkValue && (
             <div className="flex items-center gap-2 rounded-md border bg-muted/50 px-3 py-2 text-sm">
               <FolderTree className="h-3 w-3 text-muted-foreground" />
-              <span>Category ID: {linkValue}</span>
+              <span>{resolvedCatName || `Category #${linkValue}`}</span>
               <Button
                 size="sm"
                 variant="ghost"
@@ -283,6 +321,7 @@ function LinkSelector({
                   className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
                   onClick={() => {
                     onValueChange(String(cat.id));
+                    setResolvedCatName(cat.name);
                     setCatQuery("");
                     setCatResults([]);
                   }}
@@ -308,7 +347,7 @@ function LinkSelector({
           {linkValue && (
             <div className="flex items-center gap-2 rounded-md border bg-muted/50 px-3 py-2 text-sm">
               <Package className="h-3 w-3 text-muted-foreground" />
-              <span>Product ID: {linkValue}</span>
+              <span>{resolvedProdName || `Product #${linkValue}`}</span>
               <Button
                 size="sm"
                 variant="ghost"
@@ -342,6 +381,7 @@ function LinkSelector({
                   className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
                   onClick={() => {
                     onValueChange(String(p.id));
+                    setResolvedProdName(p.title);
                     setProdQuery("");
                     setProdResults([]);
                   }}

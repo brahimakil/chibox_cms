@@ -1430,7 +1430,7 @@ model order_tracking {
   id          Int      @id @default(autoincrement())
   r_order_id  Int
   r_status_id Int
-  track_date  DateTime @db.Date
+  track_date  DateTime @db.DateTime
 }
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments

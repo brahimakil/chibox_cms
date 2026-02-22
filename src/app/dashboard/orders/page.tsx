@@ -50,7 +50,7 @@ function StatusBadge({ label, color }: { label: string; color: string }) {
 
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${colorMap[color] || colorMap.gray}`}
+      className={`inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] leading-tight font-medium text-center ${colorMap[color] || colorMap.gray}`}
     >
       {label}
     </span>
@@ -176,8 +176,9 @@ export default function OrdersPage() {
   }, [hasMore, nextCursor, fetchOrders]);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const mobileScrollRef = useRef<HTMLDivElement>(null);
 
-  const ROW_HEIGHT = 56;
+  const ROW_HEIGHT = 64;
   const rowVirtualizer = useVirtualizer({
     count: orders.length,
     getScrollElement: () => scrollContainerRef.current,
@@ -185,9 +186,23 @@ export default function OrdersPage() {
     overscan: 15,
   });
 
-  // Infinite scroll – load more when near bottom
+  // Infinite scroll – load more when near bottom (desktop)
   useEffect(() => {
     const el = scrollContainerRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = el;
+      if (scrollHeight - scrollTop - clientHeight < 300) {
+        handleLoadMore();
+      }
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [handleLoadMore]);
+
+  // Infinite scroll – load more when near bottom (mobile)
+  useEffect(() => {
+    const el = mobileScrollRef.current;
     if (!el) return;
     const onScroll = () => {
       const { scrollTop, scrollHeight, clientHeight } = el;
@@ -452,7 +467,7 @@ export default function OrdersPage() {
               {/* Header row – stays fixed */}
               <div
                 className="grid items-center border-b bg-muted/80 text-sm font-medium"
-                style={{ gridTemplateColumns: "72px minmax(130px,1.5fr) 50px 85px 80px 105px 90px 90px 80px" }}
+                style={{ gridTemplateColumns: "72px minmax(130px,1.5fr) 50px 85px 80px 120px 130px 90px 80px" }}
               >
                 <div
                   className="px-3 py-3 cursor-pointer select-none hover:bg-muted/80"
@@ -504,7 +519,7 @@ export default function OrdersPage() {
                         key={o.id}
                         className="grid items-center border-b text-sm transition-colors hover:bg-muted/30 cursor-pointer absolute left-0 w-full"
                         style={{
-                          gridTemplateColumns: "72px minmax(130px,1.5fr) 50px 85px 80px 105px 90px 90px 80px",
+                          gridTemplateColumns: "72px minmax(130px,1.5fr) 50px 85px 80px 120px 130px 90px 80px",
                           height: `${virtualRow.size}px`,
                           transform: `translateY(${virtualRow.start}px)`,
                         }}
@@ -575,7 +590,7 @@ export default function OrdersPage() {
             </div>
 
             {/* Mobile Cards */}
-            <div className="grid gap-3 p-3 lg:hidden">
+            <div ref={mobileScrollRef} className="grid gap-3 p-3 lg:hidden overflow-auto" style={{ maxHeight: "calc(100vh - 370px)" }}>
               {orders.map((o: any) => (
                 <Link
                   key={o.id}
@@ -608,6 +623,12 @@ export default function OrdersPage() {
                   </div>
                 </Link>
               ))}
+              {loadingMore && (
+                <div className="flex items-center justify-center py-3">
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground mr-2" />
+                  <span className="text-xs text-muted-foreground">Loading more orders…</span>
+                </div>
+              )}
             </div>
 
             {/* Footer */}

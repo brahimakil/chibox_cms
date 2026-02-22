@@ -37,14 +37,14 @@ const STATUS_COLORS: Record<string, string> = {
 function WorkflowBadge({ statusKey, label }: { statusKey: string | null; label: string | null }) {
   if (!statusKey || !label) {
     return (
-      <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-800 dark:bg-gray-900/30 dark:text-gray-400">
+      <span className="inline-flex items-center justify-center rounded-full bg-gray-100 px-2 py-0.5 text-[10px] leading-tight font-medium text-gray-800 dark:bg-gray-900/30 dark:text-gray-400 text-center">
         Unset
       </span>
     );
   }
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_COLORS[statusKey] || "bg-gray-100 text-gray-800"}`}
+      className={`inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] leading-tight font-medium text-center ${STATUS_COLORS[statusKey] || "bg-gray-100 text-gray-800"}`}
     >
       {label}
     </span>
@@ -277,6 +277,7 @@ export default function ItemListPage() {
   };
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const mobileScrollRef = useRef<HTMLDivElement>(null);
   const ROW_HEIGHT = 56;
   const rowVirtualizer = useVirtualizer({
     count: items.length,
@@ -285,9 +286,23 @@ export default function ItemListPage() {
     overscan: 15,
   });
 
-  // Infinite scroll – load more when near bottom
+  // Infinite scroll – load more when near bottom (desktop)
   useEffect(() => {
     const el = scrollContainerRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = el;
+      if (scrollHeight - scrollTop - clientHeight < 300) {
+        handleLoadMore();
+      }
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [handleLoadMore]);
+
+  // Infinite scroll – load more when near bottom (mobile)
+  useEffect(() => {
+    const el = mobileScrollRef.current;
     if (!el) return;
     const onScroll = () => {
       const { scrollTop, scrollHeight, clientHeight } = el;
@@ -391,7 +406,7 @@ export default function ItemListPage() {
       </div>
 
       {/* Search + Order ID filter */}
-      <form onSubmit={handleSearch} className="flex gap-2">
+      <form onSubmit={handleSearch} className="flex flex-col gap-2 sm:flex-row">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
@@ -402,28 +417,30 @@ export default function ItemListPage() {
             className="w-full rounded-md border py-2 pl-10 pr-4 text-sm"
           />
         </div>
-        <div className="relative w-40">
-          <Filter className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            type="text"
-            value={orderIdFilter}
-            onChange={(e) => {
-              const val = e.target.value.replace(/\D/g, "");
-              setOrderIdFilter(val);
-            }}
-            placeholder="Order #"
-            className="w-full rounded-md border py-2 pl-10 pr-4 text-sm"
-          />
+        <div className="flex gap-2">
+          <div className="relative w-full sm:w-40">
+            <Filter className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="text"
+              value={orderIdFilter}
+              onChange={(e) => {
+                const val = e.target.value.replace(/\D/g, "");
+                setOrderIdFilter(val);
+              }}
+              placeholder="Order #"
+              className="w-full rounded-md border py-2 pl-10 pr-4 text-sm"
+            />
+          </div>
+          {(search || orderIdFilter) && (
+            <button
+              type="button"
+              onClick={() => { setSearch(""); setOrderIdFilter(""); }}
+              className="rounded-md border px-3 py-2 text-sm shrink-0"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
         </div>
-        {(search || orderIdFilter) && (
-          <button
-            type="button"
-            onClick={() => { setSearch(""); setOrderIdFilter(""); }}
-            className="rounded-md border px-3 py-2 text-sm"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        )}
       </form>
 
       {/* Bulk action bar */}
@@ -460,174 +477,309 @@ export default function ItemListPage() {
         </div>
       ) : (
         <div className="rounded-lg border overflow-hidden">
-          {/* Header row – stays fixed */}
-          <div
-            className="grid items-center border-b bg-muted/80 text-sm font-medium"
-            style={{ gridTemplateColumns: (userRole === "super_admin" || userRole === "buyer") ? "40px minmax(180px,2fr) 90px 50px 100px minmax(100px,1fr) 90px 110px" : "40px minmax(180px,2fr) 90px 50px 100px minmax(100px,1fr) 110px" }}
-          >
-            <div className="px-3 py-3 flex justify-center">
-              <button onClick={toggleSelectAll} className="text-muted-foreground hover:text-foreground">
+          {/* ── Desktop Table (lg and up) ── */}
+          <div className="hidden lg:block">
+            {/* Header row – stays fixed */}
+            <div
+              className="grid items-center border-b bg-muted/80 text-sm font-medium"
+              style={{ gridTemplateColumns: (userRole === "super_admin" || userRole === "buyer") ? "40px minmax(160px,2fr) 90px 50px 140px minmax(100px,1fr) 90px 120px" : "40px minmax(160px,2fr) 90px 50px 140px minmax(100px,1fr) 120px" }}
+            >
+              <div className="px-3 py-3 flex justify-center">
+                <button onClick={toggleSelectAll} className="text-muted-foreground hover:text-foreground">
+                  {allSelectableSelected ? (
+                    <CheckSquare className="h-4 w-4" />
+                  ) : someSelected ? (
+                    <MinusSquare className="h-4 w-4" />
+                  ) : (
+                    <Square className="h-4 w-4" />
+                  )}
+                </button>
+              </div>
+              <div className="px-3 py-3">Item</div>
+              <div className="px-3 py-3">Order</div>
+              <div className="px-3 py-3 text-center">Qty</div>
+              <div className="px-3 py-3">Status</div>
+              <div className="px-3 py-3">Tracking</div>
+              {(userRole === "super_admin" || userRole === "buyer") && (
+                <div className="px-3 py-3">Supplier</div>
+              )}
+              <div className="px-3 py-3">Actions</div>
+            </div>
+
+            {/* Virtualized scrollable body */}
+            <div
+              ref={scrollContainerRef}
+              className="overflow-auto"
+              style={{ height: "calc(100vh - 370px)", minHeight: "400px" }}
+            >
+              <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, width: "100%", position: "relative" }}>
+                {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                  const item = items[virtualRow.index];
+                  if (!item) return null;
+                  return (
+                    <div
+                      key={item.id}
+                      onClick={() => { if (!item.is_terminal) toggleSelectItem(item.id); }}
+                      className={`grid items-center border-b text-sm transition-colors hover:bg-muted/30 absolute left-0 w-full ${
+                        !item.is_terminal ? "cursor-pointer" : ""
+                      } ${selectedIds.has(item.id) ? "bg-primary/5" : ""}`}
+                      style={{
+                        gridTemplateColumns: (userRole === "super_admin" || userRole === "buyer") ? "40px minmax(160px,2fr) 90px 50px 140px minmax(100px,1fr) 90px 120px" : "40px minmax(160px,2fr) 90px 50px 140px minmax(100px,1fr) 120px",
+                        height: `${virtualRow.size}px`,
+                        transform: `translateY(${virtualRow.start}px)`,
+                      }}
+                    >
+                      {/* Checkbox */}
+                      <div className="px-3 py-2 flex justify-center">
+                        {!item.is_terminal ? (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); toggleSelectItem(item.id); }}
+                            className="text-muted-foreground hover:text-foreground"
+                          >
+                            {selectedIds.has(item.id) ? (
+                              <CheckSquare className="h-4 w-4 text-primary" />
+                            ) : (
+                              <Square className="h-4 w-4" />
+                            )}
+                          </button>
+                        ) : (
+                          <span className="inline-block h-4 w-4" />
+                        )}
+                      </div>
+                      {/* Item info */}
+                      <div className="px-3 py-2">
+                        <div className="flex items-center gap-3">
+                          {item.image_url ? (
+                            <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-md border">
+                              <img
+                                src={thumbnailUrl(item.image_url)}
+                                alt={item.product_name}
+                                className="h-full w-full object-cover"
+                                loading="lazy"
+                              />
+                            </div>
+                          ) : (
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border bg-muted">
+                              <Package className="h-4 w-4 text-muted-foreground" />
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <p className="truncate font-medium max-w-[200px]" title={item.product_name}>
+                              {item.product_name}
+                            </p>
+                            {item.variation_name && (
+                              <p className="text-xs text-muted-foreground">{item.variation_name}</p>
+                            )}
+                            <p className="text-xs text-muted-foreground">#{item.id}</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Order */}
+                      <div className="px-3 py-2">
+                        <Link
+                          href={`/dashboard/orders/${item.order_id}`}
+                          className="text-primary hover:underline font-medium"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          #{item.order_id}
+                        </Link>
+                        {item.customer_name && (
+                          <p className="text-xs text-muted-foreground">{item.customer_name}</p>
+                        )}
+                      </div>
+
+                      {/* Qty */}
+                      <div className="px-3 py-2 text-center font-medium">{item.quantity}</div>
+
+                      {/* Workflow status */}
+                      <div className="px-3 py-2">
+                        <WorkflowBadge
+                          statusKey={item.workflow_status_key}
+                          label={item.workflow_status_label}
+                        />
+                      </div>
+
+                      {/* Tracking */}
+                      <div className="px-3 py-2">
+                        {item.tracking_number ? (
+                          <div className="flex items-center gap-1">
+                            <Truck className="h-3.5 w-3.5 text-muted-foreground" />
+                            <span className="text-xs font-mono">{item.tracking_number}</span>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </div>
+
+                      {/* Supplier */}
+                      {(userRole === "super_admin" || userRole === "buyer") && (
+                      <div className="px-3 py-2">
+                        {item.supplier_link ? (
+                          <a
+                            href={item.supplier_link}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                            Product
+                          </a>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </div>
+                      )}
+
+                      {/* Actions */}
+                      <div className="px-3 py-2">
+                        {!item.is_terminal && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setSelectedItem(item); }}
+                            className="rounded-md bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/20 transition-colors"
+                          >
+                            Change Status
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {loadingMore && (
+                <div className="flex items-center justify-center py-3">
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground mr-2" />
+                  <span className="text-xs text-muted-foreground">Loading more items…</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ── Mobile Card View (below lg) ── */}
+          <div ref={mobileScrollRef} className="grid gap-3 p-3 lg:hidden overflow-auto" style={{ maxHeight: "calc(100vh - 370px)" }}>
+            {/* Select all bar for mobile */}
+            <div className="flex items-center justify-between rounded-lg border bg-muted/50 px-3 py-2">
+              <button
+                onClick={toggleSelectAll}
+                className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+              >
                 {allSelectableSelected ? (
-                  <CheckSquare className="h-4 w-4" />
+                  <CheckSquare className="h-4 w-4 text-primary" />
                 ) : someSelected ? (
                   <MinusSquare className="h-4 w-4" />
                 ) : (
                   <Square className="h-4 w-4" />
                 )}
+                <span>{allSelectableSelected ? "Deselect all" : "Select all"}</span>
               </button>
+              <span className="text-xs text-muted-foreground">{items.length} items</span>
             </div>
-            <div className="px-3 py-3">Item</div>
-            <div className="px-3 py-3">Order</div>
-            <div className="px-3 py-3 text-center">Qty</div>
-            <div className="px-3 py-3">Status</div>
-            <div className="px-3 py-3">Tracking</div>
-            {(userRole === "super_admin" || userRole === "buyer") && (
-              <div className="px-3 py-3">Supplier</div>
-            )}
-            <div className="px-3 py-3">Actions</div>
-          </div>
 
-          {/* Virtualized scrollable body */}
-          <div
-            ref={scrollContainerRef}
-            className="overflow-auto"
-            style={{ height: "calc(100vh - 370px)", minHeight: "400px" }}
-          >
-            <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, width: "100%", position: "relative" }}>
-              {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                const item = items[virtualRow.index];
-                if (!item) return null;
-                return (
-                  <div
-                    key={item.id}
-                    onClick={() => { if (!item.is_terminal) toggleSelectItem(item.id); }}
-                    className={`grid items-center border-b text-sm transition-colors hover:bg-muted/30 absolute left-0 w-full ${
-                      !item.is_terminal ? "cursor-pointer" : ""
-                    } ${selectedIds.has(item.id) ? "bg-primary/5" : ""}`}
-                    style={{
-                      gridTemplateColumns: (userRole === "super_admin" || userRole === "buyer") ? "40px minmax(180px,2fr) 90px 50px 100px minmax(100px,1fr) 90px 110px" : "40px minmax(180px,2fr) 90px 50px 100px minmax(100px,1fr) 110px",
-                      height: `${virtualRow.size}px`,
-                      transform: `translateY(${virtualRow.start}px)`,
-                    }}
-                  >
-                    {/* Checkbox */}
-                    <div className="px-3 py-2 flex justify-center">
-                      {!item.is_terminal ? (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); toggleSelectItem(item.id); }}
-                          className="text-muted-foreground hover:text-foreground"
-                        >
-                          {selectedIds.has(item.id) ? (
-                            <CheckSquare className="h-4 w-4 text-primary" />
-                          ) : (
-                            <Square className="h-4 w-4" />
-                          )}
-                        </button>
+            {items.map((item) => (
+              <div
+                key={item.id}
+                onClick={() => { if (!item.is_terminal) toggleSelectItem(item.id); }}
+                className={`rounded-lg border bg-background p-4 transition-colors ${
+                  !item.is_terminal ? "cursor-pointer hover:bg-accent/50" : ""
+                } ${selectedIds.has(item.id) ? "border-primary/50 bg-primary/5" : ""}`}
+              >
+                {/* Top row: image + name + checkbox */}
+                <div className="flex items-start gap-3">
+                  {!item.is_terminal ? (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); toggleSelectItem(item.id); }}
+                      className="mt-1 shrink-0 text-muted-foreground hover:text-foreground"
+                    >
+                      {selectedIds.has(item.id) ? (
+                        <CheckSquare className="h-4 w-4 text-primary" />
                       ) : (
-                        <span className="inline-block h-4 w-4" />
+                        <Square className="h-4 w-4" />
                       )}
-                    </div>
-                    {/* Item info */}
-                    <div className="px-3 py-2">
-                      <div className="flex items-center gap-3">
-                        {item.image_url ? (
-                          <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-md border">
-                            <img
-                              src={thumbnailUrl(item.image_url)}
-                              alt={item.product_name}
-                              className="h-full w-full object-cover"
-                              loading="lazy"
-                            />
-                          </div>
-                        ) : (
-                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border bg-muted">
-                            <Package className="h-4 w-4 text-muted-foreground" />
-                          </div>
-                        )}
-                        <div className="min-w-0">
-                          <p className="truncate font-medium max-w-[200px]" title={item.product_name}>
-                            {item.product_name}
-                          </p>
-                          {item.variation_name && (
-                            <p className="text-xs text-muted-foreground">{item.variation_name}</p>
-                          )}
-                          <p className="text-xs text-muted-foreground">#{item.id}</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Order */}
-                    <div className="px-3 py-2">
-                      <Link
-                        href={`/dashboard/orders/${item.order_id}`}
-                        className="text-primary hover:underline font-medium"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        #{item.order_id}
-                      </Link>
-                      {item.customer_name && (
-                        <p className="text-xs text-muted-foreground">{item.customer_name}</p>
-                      )}
-                    </div>
-
-                    {/* Qty */}
-                    <div className="px-3 py-2 text-center font-medium">{item.quantity}</div>
-
-                    {/* Workflow status */}
-                    <div className="px-3 py-2">
-                      <WorkflowBadge
-                        statusKey={item.workflow_status_key}
-                        label={item.workflow_status_label}
+                    </button>
+                  ) : (
+                    <span className="mt-1 inline-block h-4 w-4 shrink-0" />
+                  )}
+                  {item.image_url ? (
+                    <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-md border">
+                      <img
+                        src={thumbnailUrl(item.image_url)}
+                        alt={item.product_name}
+                        className="h-full w-full object-cover"
+                        loading="lazy"
                       />
                     </div>
-
-                    {/* Tracking */}
-                    <div className="px-3 py-2">
-                      {item.tracking_number ? (
-                        <div className="flex items-center gap-1">
-                          <Truck className="h-3.5 w-3.5 text-muted-foreground" />
-                          <span className="text-xs font-mono">{item.tracking_number}</span>
-                        </div>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
+                  ) : (
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md border bg-muted">
+                      <Package className="h-5 w-5 text-muted-foreground" />
                     </div>
-
-                    {/* Supplier */}
-                    {(userRole === "super_admin" || userRole === "buyer") && (
-                    <div className="px-3 py-2">
-                      {item.supplier_link ? (
-                        <a
-                          href={item.supplier_link}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <ExternalLink className="h-3 w-3" />
-                          Product
-                        </a>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
-                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-sm leading-tight line-clamp-2" title={item.product_name}>
+                      {item.product_name}
+                    </p>
+                    {item.variation_name && (
+                      <p className="text-xs text-muted-foreground mt-0.5">{item.variation_name}</p>
                     )}
-
-                    {/* Actions */}
-                    <div className="px-3 py-2">
-                      {!item.is_terminal && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setSelectedItem(item); }}
-                          className="rounded-md bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/20 transition-colors"
-                        >
-                          Change Status
-                        </button>
-                      )}
-                    </div>
+                    <p className="text-xs text-muted-foreground">#{item.id}</p>
                   </div>
-                );
-              })}
-            </div>
+                </div>
+
+                {/* Info row */}
+                <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+                  <Link
+                    href={`/dashboard/orders/${item.order_id}`}
+                    className="text-primary hover:underline font-medium"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    Order #{item.order_id}
+                  </Link>
+                  {item.customer_name && (
+                    <span className="text-xs text-muted-foreground">{item.customer_name}</span>
+                  )}
+                  <span className="text-xs text-muted-foreground">Qty: <strong className="text-foreground">{item.quantity}</strong></span>
+                </div>
+
+                {/* Status + Tracking row */}
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <WorkflowBadge
+                    statusKey={item.workflow_status_key}
+                    label={item.workflow_status_label}
+                  />
+                  {item.tracking_number ? (
+                    <div className="flex items-center gap-1">
+                      <Truck className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span className="text-xs font-mono text-muted-foreground">{item.tracking_number}</span>
+                    </div>
+                  ) : null}
+                  {(userRole === "super_admin" || userRole === "buyer") && item.supplier_link && (
+                    <a
+                      href={item.supplier_link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-xs text-primary hover:underline ml-auto"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      Supplier
+                    </a>
+                  )}
+                </div>
+
+                {/* Action button */}
+                {!item.is_terminal && (
+                  <div className="mt-3 flex justify-end">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setSelectedItem(item); }}
+                      className="rounded-md bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/20 transition-colors"
+                    >
+                      Change Status
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+
             {loadingMore && (
               <div className="flex items-center justify-center py-3">
                 <Loader2 className="h-4 w-4 animate-spin text-muted-foreground mr-2" />
