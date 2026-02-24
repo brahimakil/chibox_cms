@@ -51,14 +51,19 @@ export async function middleware(request: NextRequest) {
 
   try {
     const { payload } = await jwtVerify(token, JWT_SECRET);
+    const perms = (payload.permissions as string[]) || [];
+
+    // If hitting /dashboard exactly and user lacks page.dashboard, send to /dashboard/items
+    if (pathname === "/dashboard" && !perms.includes("page.dashboard")) {
+      return NextResponse.redirect(new URL("/dashboard/items", request.url));
+    }
 
     // Check route-level permissions
     for (const [route, requiredPerm] of Object.entries(ROUTE_PERMISSIONS)) {
       if (pathname.startsWith(route)) {
-        const perms = (payload.permissions as string[]) || [];
         if (!perms.includes(requiredPerm)) {
-          // Redirect unauthorized users to dashboard
-          return NextResponse.redirect(new URL("/dashboard", request.url));
+          // Redirect unauthorized users to items list (safe default)
+          return NextResponse.redirect(new URL("/dashboard/items", request.url));
         }
         break;
       }

@@ -69,6 +69,7 @@ function WorkflowModal({
   const [trackingNumber, setTrackingNumber] = useState(item.tracking_number || "");
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
+  const [trackingError, setTrackingError] = useState(false);
 
   useEffect(() => {
     fetch(`/api/orders/items/${item.id}/workflow`)
@@ -80,11 +81,16 @@ function WorkflowModal({
       .catch(() => setLoading(false));
   }, [item.id]);
 
+  // Check if any transition requires tracking — used to decide whether to show tracking input
+  const anyTransitionRequiresTracking = transitions.some((t: any) => t.requiresTracking);
+
   const handleTransition = async (toStatusKey: string, requiresTracking: boolean) => {
     if (requiresTracking && !trackingNumber.trim() && !item.tracking_number) {
-      setError("Tracking number is required for this transition");
+      setError("You must enter a tracking number before changing to this status.");
+      setTrackingError(true);
       return;
     }
+    setTrackingError(false);
 
     setUpdating(true);
     setError("");
@@ -147,16 +153,38 @@ function WorkflowModal({
           </p>
         ) : (
           <>
-            {(userRole === "buyer" || userRole === "super_admin") && (
+            {anyTransitionRequiresTracking && (
             <div className="mb-4">
-              <label className="mb-1 block text-sm font-medium">Tracking Number</label>
+              <label className="mb-1 block text-sm font-medium">
+                Tracking Number <span className="text-red-500">*</span>
+              </label>
               <input
                 type="text"
                 value={trackingNumber}
-                onChange={(e) => setTrackingNumber(e.target.value)}
-                className="w-full rounded-md border px-3 py-2 text-sm"
+                onChange={(e) => {
+                  setTrackingNumber(e.target.value);
+                  if (e.target.value.trim()) {
+                    setTrackingError(false);
+                    setError("");
+                  }
+                }}
+                className={`w-full rounded-md border px-3 py-2 text-sm ${
+                  trackingError
+                    ? "border-red-500 ring-2 ring-red-200 dark:ring-red-900/50"
+                    : ""
+                }`}
                 placeholder="Enter tracking number..."
               />
+              {trackingError && (
+                <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                  A tracking number is required before shipping.
+                </p>
+              )}
+              {!trackingError && !item.tracking_number && (
+                <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                  Required for status transitions marked with *
+                </p>
+              )}
             </div>
             )}
 
@@ -183,8 +211,8 @@ function WorkflowModal({
                 >
                   <span>
                     → {t.toStatusLabel}
-                    {t.requiresTracking && (
-                      <span className="ml-2 text-xs text-muted-foreground">(tracking required)</span>
+                    {t.requiresTracking && !trackingNumber.trim() && !item.tracking_number && (
+                      <span className="ml-2 text-xs font-semibold text-red-500">* tracking required</span>
                     )}
                   </span>
                   {updating && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -847,6 +875,9 @@ function BulkWorkflowModal({
   const [trackingNumber, setTrackingNumber] = useState("");
   const [error, setError] = useState("");
   const [result, setResult] = useState<any>(null);
+  const [trackingError, setTrackingError] = useState(false);
+
+  const anyTransitionRequiresTracking = transitions.some((t: any) => t.requiresTracking);
 
   // Find transitions that are common to ALL selected items
   // by fetching each unique current-status's transitions and intersecting
@@ -904,7 +935,17 @@ function BulkWorkflowModal({
     };
   }, [items]);
 
-  const handleBulkTransition = async (toStatusKey: string) => {
+  const handleBulkTransition = async (toStatusKey: string, requiresTracking: boolean) => {
+    // Check if any selected items lack a tracking number and the transition requires one
+    if (requiresTracking && !trackingNumber.trim()) {
+      const itemsWithoutTracking = items.filter((i) => !i.tracking_number);
+      if (itemsWithoutTracking.length > 0) {
+        setError(`You must enter a tracking number. ${itemsWithoutTracking.length} item(s) have no tracking number.`);
+        setTrackingError(true);
+        return;
+      }
+    }
+    setTrackingError(false);
     setUpdating(true);
     setError("");
 
@@ -1014,16 +1055,33 @@ function BulkWorkflowModal({
           </p>
         ) : (
           <>
-            {(userRole === "buyer" || userRole === "super_admin") && (
+            {anyTransitionRequiresTracking && (
             <div className="mb-4">
-              <label className="mb-1 block text-sm font-medium">Tracking Number (optional)</label>
+              <label className="mb-1 block text-sm font-medium">
+                Tracking Number <span className="text-red-500">*</span>
+              </label>
               <input
                 type="text"
                 value={trackingNumber}
-                onChange={(e) => setTrackingNumber(e.target.value)}
-                className="w-full rounded-md border px-3 py-2 text-sm"
+                onChange={(e) => {
+                  setTrackingNumber(e.target.value);
+                  if (e.target.value.trim()) {
+                    setTrackingError(false);
+                    setError("");
+                  }
+                }}
+                className={`w-full rounded-md border px-3 py-2 text-sm ${
+                  trackingError
+                    ? "border-red-500 ring-2 ring-red-200 dark:ring-red-900/50"
+                    : ""
+                }`}
                 placeholder="Apply one tracking number to all selected items..."
               />
+              {trackingError && (
+                <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                  A tracking number is required before shipping.
+                </p>
+              )}
             </div>
             )}
 
@@ -1031,13 +1089,18 @@ function BulkWorkflowModal({
               {transitions.map((t: any) => (
                 <button
                   key={t.toStatusKey}
-                  onClick={() => handleBulkTransition(t.toStatusKey)}
+                  onClick={() => handleBulkTransition(t.toStatusKey, t.requiresTracking)}
                   disabled={updating}
                   className={`flex items-center justify-between rounded-md border px-3 py-2.5 text-sm font-medium transition-colors hover:bg-accent disabled:opacity-50 ${
                     t.isTerminal ? "border-red-200 text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-400" : ""
                   }`}
                 >
-                  <span>→ {t.toStatusLabel} ({items.length} items)</span>
+                  <span>
+                    → {t.toStatusLabel} ({items.length} items)
+                    {t.requiresTracking && !trackingNumber.trim() && (
+                      <span className="ml-2 text-xs font-semibold text-red-500">* tracking required</span>
+                    )}
+                  </span>
                   {updating && <Loader2 className="h-4 w-4 animate-spin" />}
                 </button>
               ))}
