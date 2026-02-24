@@ -158,11 +158,12 @@ function LinkSelector({
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`/api/products/${linkValue}`);
+        const res = await fetch(`/api/products?search=${encodeURIComponent(linkValue)}&limit=5`);
         const data = await res.json();
-        const p = data.product || data;
-        if (!cancelled && p) {
-          setResolvedProdName(p.display_name || p.product_name || p.title || `#${p.id}`);
+        const products: any[] = data.products || [];
+        const found = products.find((p: any) => String(p.id) === linkValue);
+        if (!cancelled && found) {
+          setResolvedProdName(found.display_name || found.product_name || found.title || `#${found.id}`);
         }
       } catch { /* ignore */ }
     })();
