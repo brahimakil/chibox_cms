@@ -114,7 +114,7 @@ export async function getAllowedTransitions(roleKey: string, currentStatusId: nu
         toStatusKey: s.status_key,
         toStatusLabel: s.status_label,
         isTerminal: s.is_terminal === true,
-        requiresTracking: t.requires_tracking_number === 1,
+        requiresTracking: !!t.requires_tracking_number,
       };
     });
 }
