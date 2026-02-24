@@ -1419,7 +1419,9 @@ model order_products {
   by_sea                     Float?
   shipping_method            order_products_shipping_method?
   tax_amount                 Decimal?                        @default(0.00) @db.Decimal(10, 2)
+  order                      orders                          @relation(fields: [r_order_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_order_products_order")
 
+  @@index([r_order_id], map: "idx_order_products_order_id")
   @@index([source_product_id], map: "idx_source_product_id")
   @@index([variation_id], map: "idx_variation_id")
   @@index([workflow_status_id], map: "idx_order_products_workflow_status")
@@ -1482,6 +1484,7 @@ model orders {
   pick_up_date          DateTime?               @db.Date
   additional_details    String?                 @db.Text
   coupon_usage          coupon_usage[]
+  order_products        order_products[]
 
   @@index([created_at], map: "idx_created_at")
   @@index([created_at], map: "idx_orders_created_at")

@@ -503,8 +503,8 @@ export default function OrderDetailPage({
 
   const { order, products, tracking, transactions, customer, coupon } = data;
 
-  // Lebanon warehouse has read-only access — no editing allowed
-  const canEdit = userRole !== "lebanon_warehouse";
+  // Warehouse roles have read-only access — no editing allowed
+  const canEdit = userRole !== "lebanon_warehouse" && userRole !== "china_warehouse";
 
   // Group item statuses by label for the breakdown display
   const statusGroups: { label: string; count: number; color: string }[] = [];

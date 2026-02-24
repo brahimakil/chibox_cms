@@ -1,7 +1,19 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getSession } from "@/lib/auth";
 import { SHIPPING_STATUS, PAYMENT_TYPES } from "@/lib/order-constants";
+
+/**
+ * Role-based order visibility:
+ *   china_warehouse  — orders with at least 1 non-terminal item in ordered / shipped_to_wh / received_to_wh
+ *   lebanon_warehouse — orders with at least 1 non-terminal item in shipped_to_leb / received_to_leb / delivered_to_customer
+ *   super_admin / buyer — all orders (no filter)
+ */
+const ROLE_ORDER_VISIBLE_STATUSES: Record<string, string[]> = {
+  china_warehouse: ["ordered", "shipped_to_wh", "received_to_wh"],
+  lebanon_warehouse: ["shipped_to_leb", "received_to_leb", "delivered_to_customer"],
+};
 
 /**
  * GET /api/orders — List orders with filters, pagination, sorting.
@@ -15,6 +27,11 @@ import { SHIPPING_STATUS, PAYMENT_TYPES } from "@/lib/order-constants";
  */
 export async function GET(req: NextRequest) {
   try {
+    const session = await getSession();
+    if (!session) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    }
+
     const sp = req.nextUrl.searchParams;
 
     const limit = Math.min(100, Math.max(1, Number(sp.get("limit")) || 25));
@@ -35,19 +52,47 @@ export async function GET(req: NextRequest) {
     const sortDir = sp.get("sort_dir") === "asc" ? "asc" : "desc";
     const fullyPaidFirst = sp.get("fully_paid_first") === "1";
 
+    // ── Role-based order visibility ─────────────────────────────────
+    // Warehouse roles only see orders that have at least one non-terminal
+    // item in their relevant statuses.
+    const visibleStatusKeys = ROLE_ORDER_VISIBLE_STATUSES[session.roleKey] || null;
+    let roleOrderFilter: any = undefined;
+
+    if (visibleStatusKeys) {
+      // Resolve status keys → IDs
+      const visibleStatuses = await prisma.cms_order_item_statuses.findMany({
+        where: { status_key: { in: visibleStatusKeys }, is_active: true },
+        select: { id: true },
+      });
+      const visibleIds = visibleStatuses.map((s) => s.id);
+      // Only show orders that have at least one item with one of these statuses
+      roleOrderFilter = {
+        order_products: {
+          some: { workflow_status_id: { in: visibleIds } },
+        },
+      };
+    }
+
     // ── Build WHERE ────────────────────────────────────────────────
-    const where: any = {};
+    const where: any = { AND: [] };
+
+    // Apply role-based order visibility
+    if (roleOrderFilter) {
+      where.AND.push(roleOrderFilter);
+    }
 
     if (search) {
       const num = Number(search);
       if (Number.isFinite(num) && num > 0) {
-        where.id = num;
+        where.AND.push({ id: num });
       } else {
-        where.OR = [
-          { address_first_name: { contains: search } },
-          { address_last_name: { contains: search } },
-          { payment_id: { contains: search } },
-        ];
+        where.AND.push({
+          OR: [
+            { address_first_name: { contains: search } },
+            { address_last_name: { contains: search } },
+            { payment_id: { contains: search } },
+          ],
+        });
       }
     }
 
@@ -58,9 +103,11 @@ export async function GET(req: NextRequest) {
         where: { status_key: status },
       });
       if (ws) {
-        where.order_products = {
-          some: { workflow_status_id: ws.id },
-        };
+        where.AND.push({
+          order_products: {
+            some: { workflow_status_id: ws.id },
+          },
+        });
       }
     }
 
@@ -99,9 +146,9 @@ export async function GET(req: NextRequest) {
       if (Number.isFinite(cursorId) && cursorId > 0) {
         // Default sort is DESC by created_at/id, so cursor means "id < cursorId"
         if (sortDir === "asc") {
-          where.id = { ...(where.id || {}), gt: cursorId };
+          where.AND.push({ id: { gt: cursorId } });
         } else {
-          where.id = { ...(where.id || {}), lt: cursorId };
+          where.AND.push({ id: { lt: cursorId } });
         }
       }
     }
@@ -123,6 +170,11 @@ export async function GET(req: NextRequest) {
     }
 
     // ── Query ──────────────────────────────────────────────────────
+    // Clean up empty AND array — Prisma rejects AND: []
+    if (where.AND && where.AND.length === 0) {
+      delete where.AND;
+    }
+
     const [orders, totalCount] = await Promise.all([
       prisma.orders.findMany({
         where,
@@ -266,8 +318,11 @@ export async function GET(req: NextRequest) {
     const orderedStatus = allStatuses.find((s) => s.status_key === "ordered");
     const shippedToLebStatus = allStatuses.find((s) => s.status_key === "shipped_to_leb");
 
+    // Scope stats to the role's visible orders
+    const statsWhere = roleOrderFilter || {};
+
     const [totalOrders, processingCount, inTransitCount, todayRevenue] = await Promise.all([
-      prisma.orders.count(),
+      prisma.orders.count({ where: statsWhere }),
       processingStatus
         ? prisma.order_products.count({ where: { workflow_status_id: processingStatus.id } })
         : 0,
@@ -276,6 +331,7 @@ export async function GET(req: NextRequest) {
         : 0,
       prisma.orders.aggregate({
         where: {
+          ...statsWhere,
           is_paid: 1,
           created_at: {
             gte: new Date(new Date().setHours(0, 0, 0, 0)),
@@ -286,8 +342,16 @@ export async function GET(req: NextRequest) {
     ]);
 
     // ── Workflow status summary for filter bar ───────────────────
+    // For warehouse roles, only count items in their visible statuses
+    const workflowCountWhere: any = {};
+    if (visibleStatusKeys) {
+      const visibleStatuses = allStatuses.filter((s) => visibleStatusKeys.includes(s.status_key));
+      workflowCountWhere.workflow_status_id = { in: visibleStatuses.map((s) => s.id) };
+    }
+
     const workflowCounts = await prisma.order_products.groupBy({
       by: ["workflow_status_id"],
+      where: workflowCountWhere,
       _count: { id: true },
     });
     const workflowSummary = workflowCounts.map((wc) => {
